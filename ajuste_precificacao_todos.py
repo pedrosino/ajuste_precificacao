@@ -583,6 +583,45 @@ st.dataframe(
     hide_index=True,
 )
 
+# ── Títulos ───────────────────────────────────────────────────────────────────
+st.divider()
+
+st.subheader("Títulos do Plano")
+
+titulos_plano = df[df["numero_plano"] == plano].copy()
+
+tabela_titulos = (
+    titulos_plano
+    .groupby(["ISIN", "quantidade", "qtde_total", "taxa"])[["vp_curva", "vp_curva_total", 
+                                              "vp_ativo", "vp_ativo_total"]]
+    .sum()
+    .reset_index()
+)
+
+tabela_titulos["Valor unitário curva"] = tabela_titulos["vp_curva"] / tabela_titulos["quantidade"]
+tabela_titulos["Valor unitário"] = tabela_titulos["vp_ativo"] / tabela_titulos["quantidade"]
+
+tabela_titulos.columns = [
+    "ISIN", "Quantidade usada", "Quantidade total", "Taxa", "VP Curva", "VP Curva (Total)", "VP Ativo", "VP Ativo (Total)", "Valor Unitário curva", "Valor Unitário"
+]
+
+st.dataframe(
+    tabela_titulos.style.format({
+        "Valor Unitário": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Valor Unitário curva": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "VP Curva":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "VP Curva (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "VP Ativo":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "VP Ativo (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Taxa Curva":     lambda x: f"{x:.4%}".replace(".", ","),
+        "Quantidade usada":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Quantidade total": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Taxa": lambda x: f"{x:.3%}".replace(".", ","),
+    }),
+    width='stretch',
+    hide_index=True,
+)
+
 # ── Download ───────────────────────────────────────────────────────────────────
 st.divider()
 
