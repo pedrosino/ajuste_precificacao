@@ -454,8 +454,8 @@ c8.markdown(kpi_card("VP Ativo (taxa curva) - Total", moeda_br(vp_curva_plano_to
 c9.markdown(kpi_card("Ajuste de precificação - Total", moeda_br(ajuste_plano_total), (ajuste_plano_total/vp_passivo_total*100)), unsafe_allow_html=True)
 
 c10, c11, c12 = st.columns(3)
-c10.markdown(kpi_card("Duração do ativo (dias)", f"{formatar_numero(duracao_ativo_plano, 2)} dias ({formatar_numero(duracao_ativo_plano/365.25, 4)} anos)"), unsafe_allow_html=True)
-c11.markdown(kpi_card("Duração do ativo (dias) - Total", f"{formatar_numero(duracao_ativo_plano_total, 2)} dias ({formatar_numero(duracao_ativo_plano_total/365.25, 4)} anos)"), unsafe_allow_html=True)
+c10.markdown(kpi_card("Duração do ativo (dias)", f"{formatar_numero(duracao_ativo_plano, 2)} dias ({formatar_numero(duracao_ativo_plano/252, 4)} anos)"), unsafe_allow_html=True)
+c11.markdown(kpi_card("Duração do ativo (dias) - Total", f"{formatar_numero(duracao_ativo_plano_total, 2)} dias ({formatar_numero(duracao_ativo_plano_total/252, 4)} anos)"), unsafe_allow_html=True)
 #c12.markdown(kpi_card("Duração do ativo (taxa curva)", f"{formatar_numero(duracao_curva_plano, 2)} dias"), unsafe_allow_html=True)
 
 c13, c14, c15 = st.columns(3)
