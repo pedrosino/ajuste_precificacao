@@ -19,6 +19,8 @@ def perc_br(x):
 
 def formatar_numero(x, casas):
     """Formata número com casas decimais e separador de milhar"""
+    if pd.isna(x):
+        return "—"
     if casas == 0:
         return f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", ".")
     else:
@@ -45,7 +47,7 @@ st.caption("Cálculo do valor presente do ativo e passivo do plano de benefício
 uploaded = st.file_uploader(
     "Selecione o arquivo Excel",
     type=["xlsx", "xls"],
-    help="Arquivo com as abas: Titulos, titulos_plano, Passivo, dias_uteis",
+    help="Arquivo com as abas: Titulos, titulos_plano, Passivo, contas, dias_uteis",
 )
 
 if not uploaded:
@@ -62,26 +64,37 @@ def load_workbook(file_bytes: bytes):
     fluxo      = pd.read_excel(buf, sheet_name="Titulos")
     mapa       = pd.read_excel(buf, sheet_name="titulos_plano")
     passivo    = pd.read_excel(buf, sheet_name="Passivo")
+    contas     = pd.read_excel(buf, sheet_name="contas")
     dias_uteis = pd.read_excel(buf, sheet_name="dias_uteis", header=None, names=["data"])
-    return fluxo, mapa, passivo, dias_uteis
+    return fluxo, mapa, passivo, contas, dias_uteis
 
 try:
-    fluxo, mapa, passivo, dias_uteis = load_workbook(uploaded.read())
+    fluxo, mapa, passivo, contas, dias_uteis = load_workbook(uploaded.read())
 except Exception as e:
     st.error(f"Erro ao ler o arquivo: {e}")
     st.stop()
+
+if 'grupo' not in mapa.columns:
+    mapa['grupo'] = 'Único'
+mapa['grupo'] = mapa['grupo'].fillna('Único').astype(str)
+
+if 'grupo' not in passivo.columns:
+    passivo['grupo'] = 'Único'
+passivo['grupo'] = passivo['grupo'].fillna('Único').astype(str)
 
 # ─────────────────────────────────────────────
 # 4. PREPARAR DADOS (CACHEADO)
 # ─────────────────────────────────────────────
 
 @st.cache_data(show_spinner="Calculando…")
-def calcular_precificacao(fluxo, mapa, passivo, dias_uteis):
+def calcular_precificacao(fluxo, mapa, passivo, contas, dias_uteis):
     """Realiza todos os cálculos de precificação uma única vez e cacheia o resultado."""
     
     # datas
     fluxo = fluxo.copy()
+    mapa = mapa.copy()
     passivo = passivo.copy()
+    contas = contas.copy()
     dias_uteis = dias_uteis.copy()
     
     fluxo["data_pgto"] = pd.to_datetime(fluxo["data_pgto"])
@@ -90,10 +103,21 @@ def calcular_precificacao(fluxo, mapa, passivo, dias_uteis):
     dias_uteis["dia_indice"] = dias_uteis.index
     mapa_du = dias_uteis.set_index("data")["dia_indice"]
 
+    if 'grupo' not in passivo.columns:
+        passivo['grupo'] = 'Único'
+    passivo['grupo'] = passivo['grupo'].fillna('Único').astype(str)
+
+    if 'grupo' not in mapa.columns:
+        mapa['grupo'] = 'Único'
+    mapa['grupo'] = mapa['grupo'].fillna('Único').astype(str)
+
     passivo['taxa_dia'] = (1 + passivo['taxa']) ** (1 / 252) - 1
     taxas_plano = passivo[['numero_plano','taxa','taxa_dia']].drop_duplicates(subset='numero_plano')
+    taxas_grupo = passivo[['numero_plano','grupo','taxa','taxa_dia']].drop_duplicates(
+        subset=['numero_plano', 'grupo']
+    )
 
-    # filtrar fluxo pelo plano
+    # filtrar fluxo pelo plano/grupo
     df = fluxo.merge(mapa, on="ISIN", how="inner")
     if df.empty:
         return None
@@ -119,181 +143,174 @@ def calcular_precificacao(fluxo, mapa, passivo, dias_uteis):
     df = df[df["prazo_du"] > 0].copy()
     df["ano"] = df["data_pgto"].dt.year
 
+    # Taxa atuarial por plano+grupo (fallback para taxa do plano)
+    df = df.merge(
+        taxas_grupo[['numero_plano', 'grupo', 'taxa_dia']],
+        on=['numero_plano', 'grupo'],
+        how='left',
+    )
+    faltantes_taxa = df['taxa_dia'].isna()
+    if faltantes_taxa.any():
+        df.loc[faltantes_taxa, 'taxa_dia'] = df.loc[faltantes_taxa, 'numero_plano'].map(
+            taxas_plano.set_index('numero_plano')['taxa_dia']
+        )
+
     # VPs
     df["vp_curva"]  = df["fluxo"] / (1 + df["taxa_diaria"]) ** df["prazo_du"]
     df["vp_curva_total"] = df["fluxo_total"] / (1 + df["taxa_diaria"]) ** df["prazo_du"]
-    df['taxa_dia'] = df['numero_plano'].map(taxas_plano.set_index('numero_plano')['taxa_dia'])
     df["vp_ativo"]  = df["fluxo"] / (1 + df["taxa_dia"]) ** df["prazo_du"]
     df["vp_ativo_total"] = df["fluxo_total"] / (1 + df["taxa_dia"]) ** df["prazo_du"]
 
-    vp_curva = (
-        df
-        .groupby(['numero_plano', 'data_base'])['vp_curva']
-        .sum()
-        .reset_index()
-    )
+    def _cumsum_ano(frame, keys, value_col, acum_col='acumulado_ativo'):
+        group_keys = [k for k in keys if k != 'ano']
+        out = frame.copy()
+        out[acum_col] = (
+            out
+            .sort_values(keys, ascending=[True] * (len(keys) - 1) + [False])
+            .groupby(group_keys)[value_col]
+            .cumsum()
+        )
+        return out.sort_values(keys)
 
-    vp_curva_total = (
-        df
-        .groupby(['numero_plano', 'data_base'])['vp_curva_total']
-        .sum()
-        .reset_index()
-    )
+    def _vp_ativo_agg(keys_sem_ano, value_col):
+        keys = keys_sem_ano + ['ano']
+        out = (
+            df
+            .groupby(keys)[value_col]
+            .sum()
+            .reset_index()
+        )
+        return _cumsum_ano(out, keys, value_col)
 
-    vp_taxa_atuarial = (
-        df
-        .groupby(['numero_plano', 'data_base'])['vp_ativo']
-        .sum()
-        .reset_index()
-    )
+    def _sum_keys(keys, value_col):
+        return (
+            df
+            .groupby(keys)[value_col]
+            .sum()
+            .reset_index()
+        )
 
-    vp_taxa_atuarial_total = (
-        df
-        .groupby(['numero_plano', 'data_base'])['vp_ativo_total']
-        .sum()
-        .reset_index()
-    )
+    # Agregações por plano e por grupo
+    vp_curva = _sum_keys(['numero_plano', 'data_base'], 'vp_curva')
+    vp_curva_total = _sum_keys(['numero_plano', 'data_base'], 'vp_curva_total')
+    vp_curva_grupo = _sum_keys(['numero_plano', 'grupo', 'data_base'], 'vp_curva')
+    vp_curva_grupo_total = _sum_keys(['numero_plano', 'grupo', 'data_base'], 'vp_curva_total')
 
-    ajuste = vp_curva.merge(
-        vp_taxa_atuarial,
-        on=['numero_plano', 'data_base'],
-        how='inner'
-    )
-
-    ajuste_total = vp_curva_total.merge(
-        vp_taxa_atuarial_total,
-        on=['numero_plano', 'data_base'],
-        how='inner'
-    )
-
-    ajuste['ajuste'] = ajuste['vp_ativo'] - ajuste['vp_curva']
-    ajuste_total['ajuste'] = ajuste_total['vp_ativo_total'] - ajuste_total['vp_curva_total']
-
-    vp_ativo = (
-        df
-        .groupby(['numero_plano', 'ano'])['vp_ativo']
-        .sum()
-        .reset_index()
-    )
-
-    vp_ativo_total = (
-        df
-        .groupby(['numero_plano', 'ano'])['vp_ativo_total']
-        .sum()
-        .reset_index()
-    )
-
-    vp_ativo['acumulado_ativo'] = (
-        vp_ativo
-        .sort_values(['numero_plano', 'ano'], ascending=[True, False])
-        .groupby('numero_plano')['vp_ativo']
-        .cumsum()
-    )
-
-    vp_ativo = vp_ativo.sort_values(['numero_plano', 'ano'])
-
-    vp_ativo_total['acumulado_ativo'] = (
-        vp_ativo_total
-        .sort_values(['numero_plano', 'ano'], ascending=[True, False])
-        .groupby('numero_plano')['vp_ativo_total']
-        .cumsum()
-    )
-
-    vp_ativo_total = vp_ativo_total.sort_values(['numero_plano', 'ano'])
+    vp_ativo = _vp_ativo_agg(['numero_plano'], 'vp_ativo')
+    vp_ativo_total = _vp_ativo_agg(['numero_plano'], 'vp_ativo_total')
+    vp_ativo_grupo = _vp_ativo_agg(['numero_plano', 'grupo'], 'vp_ativo')
+    vp_ativo_grupo_total = _vp_ativo_agg(['numero_plano', 'grupo'], 'vp_ativo_total')
 
     # Duração do ativo
     df["ponderado"] = df["vp_ativo"] * df["prazo_du"]
     df["ponderado_total"] = df["vp_ativo_total"] * df["prazo_du"]
-
     df["prazo_anos"] = (df["ano"] - ANO_BASE) - 0.5
-
     df["ponderado_anos"] = df["vp_ativo"] * df["prazo_anos"]
     df["ponderado_anos_total"] = df["vp_ativo_total"] * df["prazo_anos"]
 
-    ponderado_ativo = (
-        df
-        .groupby(['numero_plano', 'data_base'])['ponderado']
-        .sum()
-        .reset_index()
+    def _duracao_ativo(keys, ponderado_col, vp_frame, vp_acum_col='acumulado_ativo'):
+        ponderado = _sum_keys(keys + ['data_base'], ponderado_col)
+        base = vp_frame[vp_frame['ano'] == 2026]
+        out = ponderado.merge(base, on=keys, how='inner')
+        out['duracao'] = out[ponderado_col] / out[vp_acum_col]
+        return out
+
+    duracao_ativo = _duracao_ativo(
+        ['numero_plano'], 'ponderado', vp_ativo
     )
-
-    ponderado_ativo_total = (
-        df
-        .groupby(['numero_plano', 'data_base'])['ponderado_total']
-        .sum()
-        .reset_index()
+    duracao_ativo_total = _duracao_ativo(
+        ['numero_plano'], 'ponderado_total', vp_ativo_total
     )
-
-    ponderado_anos = (
-        df
-        .groupby(['numero_plano', 'data_base'])['ponderado_anos']
-        .sum()
-        .reset_index()
+    duracao_ativo_anos = _duracao_ativo(
+        ['numero_plano'], 'ponderado_anos', vp_ativo
     )
-
-    ponderado_anos_total = (
-        df
-        .groupby(['numero_plano', 'data_base'])['ponderado_anos_total']
-        .sum()
-        .reset_index()
+    duracao_ativo_anos_total = _duracao_ativo(
+        ['numero_plano'], 'ponderado_anos_total', vp_ativo_total
     )
-
-    duracao_ativo = ponderado_ativo.merge(
-        vp_ativo[vp_ativo['ano'] == 2026],
-        on=['numero_plano'],
-        how='inner'
+    duracao_ativo_grupo = _duracao_ativo(
+        ['numero_plano', 'grupo'], 'ponderado', vp_ativo_grupo
     )
-
-    duracao_ativo_total = ponderado_ativo_total.merge(
-        vp_ativo_total[vp_ativo_total['ano'] == 2026],
-        on=['numero_plano'],
-        how='inner'
+    duracao_ativo_grupo_total = _duracao_ativo(
+        ['numero_plano', 'grupo'], 'ponderado_total', vp_ativo_grupo_total
     )
-
-    duracao_ativo_anos = ponderado_anos.merge(
-        vp_ativo[vp_ativo['ano'] == 2026],
-        on=['numero_plano'],
-        how='inner'
+    duracao_ativo_anos_grupo = _duracao_ativo(
+        ['numero_plano', 'grupo'], 'ponderado_anos', vp_ativo_grupo
     )
-
-    duracao_ativo_anos_total = ponderado_anos_total.merge(
-        vp_ativo_total[vp_ativo_total['ano'] == 2026],
-        on=['numero_plano'],
-        how='inner'
+    duracao_ativo_anos_grupo_total = _duracao_ativo(
+        ['numero_plano', 'grupo'], 'ponderado_anos_total', vp_ativo_grupo_total
     )
-
-    duracao_ativo['duracao'] = duracao_ativo['ponderado'] / duracao_ativo['acumulado_ativo']
-    duracao_ativo_total['duracao'] = duracao_ativo_total['ponderado_total'] / duracao_ativo_total['acumulado_ativo']
-    duracao_ativo_anos['duracao'] = duracao_ativo_anos['ponderado_anos'] / duracao_ativo_anos['acumulado_ativo']
-    duracao_ativo_anos_total['duracao'] = duracao_ativo_anos_total['ponderado_anos_total'] / duracao_ativo_anos_total['acumulado_ativo']
-
     # garantir tipos
     passivo['ano'] = passivo['ano'].astype(int)
+    passivo['conta_id'] = passivo['conta_id'].astype(int)
+    contas['conta_id'] = contas['conta_id'].astype(int)
+
+    # Mapeamento de contas (contar_vp / contar_duracao: 1, -1 ou 0)
+    passivo = passivo.merge(
+        contas[['conta_id', 'contar_duracao', 'contar_vp']],
+        on='conta_id',
+        how='left',
+    )
+    contas_sem_mapa = passivo['contar_vp'].isna() | passivo['contar_duracao'].isna()
+    if contas_sem_mapa.any():
+        ids_faltantes = sorted(passivo.loc[contas_sem_mapa, 'conta_id'].unique())
+        raise ValueError(
+            f"conta_id sem mapeamento na aba contas: {ids_faltantes}"
+        )
 
     # Prazo no meio do ano
     passivo['prazo'] = (passivo['ano'] - ANO_BASE) - 0.5
 
-    # Valor presente
-    passivo['vp_passivo'] = passivo['valor'] / (1 + passivo['taxa']) ** passivo['prazo']
-
-    # agregar
-    vp_passivo = (
-        passivo
-        .groupby(['numero_plano', 'ano'])['vp_passivo']
-        .sum()
-        .reset_index()
+    # Valor presente (apenas contas com contar_vp ≠ 0; sinal conforme mapeamento)
+    passivo['vp_passivo'] = (
+        (passivo['valor'] * passivo['contar_vp'])
+        / (1 + passivo['taxa']) ** passivo['prazo']
     )
 
-    # Acumulado para a frente
-    vp_passivo['acumulado_passivo'] = (
-        vp_passivo
-        .sort_values(['numero_plano', 'ano'], ascending=[True, False])
-        .groupby('numero_plano')['vp_passivo']
-        .cumsum()
+    # Duração do passivo (apenas contas com contar_duracao ≠ 0; sinal conforme mapeamento)
+    passivo['vp_duracao'] = (
+        (passivo['valor'] * passivo['contar_duracao'])
+        / (1 + passivo['taxa']) ** passivo['prazo']
     )
+    passivo['ponderado_anos_passivo'] = passivo['vp_duracao'] * passivo['prazo']
 
-    # voltar ordem crescente
-    vp_passivo = vp_passivo.sort_values(['numero_plano', 'ano'])
+    def _duracao_passivo_agg(keys):
+        out = (
+            passivo
+            .groupby(keys)
+            .agg(
+                ponderado_anos_passivo=('ponderado_anos_passivo', 'sum'),
+                vp_duracao=('vp_duracao', 'sum'),
+            )
+            .reset_index()
+        )
+        out['duracao'] = np.where(
+            out['vp_duracao'] != 0,
+            out['ponderado_anos_passivo'] / out['vp_duracao'],
+            np.nan,
+        )
+        return out
+
+    duracao_passivo = _duracao_passivo_agg(['numero_plano'])
+    duracao_passivo_grupo = _duracao_passivo_agg(['numero_plano', 'grupo'])
+
+    def _vp_passivo_agg(keys):
+        out = (
+            passivo
+            .groupby(keys)['vp_passivo']
+            .sum()
+            .reset_index()
+        )
+        group_keys = [k for k in keys if k != 'ano']
+        out['acumulado_passivo'] = (
+            out
+            .sort_values(keys, ascending=[True] * (len(keys) - 1) + [False])
+            .groupby(group_keys)['vp_passivo']
+            .cumsum()
+        )
+        return out.sort_values(keys)
+
+    vp_passivo = _vp_passivo_agg(['numero_plano', 'ano'])
+    vp_passivo_grupo = _vp_passivo_agg(['numero_plano', 'grupo', 'ano'])
 
     # ── Merge resultado ────────────────────────────────────────────
     resultado = vp_passivo.merge(
@@ -312,27 +329,73 @@ def calcular_precificacao(fluxo, mapa, passivo, dias_uteis):
     resultado_total["excesso_ativo"] = resultado_total["acumulado_ativo"] - resultado_total["acumulado_passivo"]
     resultado_total["flag_excesso"]  = resultado_total["acumulado_ativo"] > resultado_total["acumulado_passivo"]
 
+    resultado_grupo = vp_passivo_grupo.merge(
+        vp_ativo_grupo,
+        on=["numero_plano", "grupo", "ano"],
+        how="outer",
+    )
+    resultado_grupo["acumulado_ativo"] = resultado_grupo["acumulado_ativo"].fillna(0)
+    resultado_grupo["acumulado_passivo"] = resultado_grupo["acumulado_passivo"].fillna(0)
+    resultado_grupo["excesso_ativo"] = (
+        resultado_grupo["acumulado_ativo"] - resultado_grupo["acumulado_passivo"]
+    )
+    resultado_grupo["flag_excesso"] = (
+        resultado_grupo["acumulado_ativo"] > resultado_grupo["acumulado_passivo"]
+    )
+
+    resultado_grupo_total = vp_passivo_grupo.merge(
+        vp_ativo_grupo_total,
+        on=["numero_plano", "grupo", "ano"],
+        how="outer",
+    )
+    resultado_grupo_total["acumulado_ativo"] = resultado_grupo_total["acumulado_ativo"].fillna(0)
+    resultado_grupo_total["acumulado_passivo"] = resultado_grupo_total["acumulado_passivo"].fillna(0)
+    resultado_grupo_total["excesso_ativo"] = (
+        resultado_grupo_total["acumulado_ativo"] - resultado_grupo_total["acumulado_passivo"]
+    )
+    resultado_grupo_total["flag_excesso"] = (
+        resultado_grupo_total["acumulado_ativo"] > resultado_grupo_total["acumulado_passivo"]
+    )
+
     print(f"Calculado {datetime.now()}")
     
     return {
         'vp_curva': vp_curva,
         'vp_curva_total': vp_curva_total,
+        'vp_curva_grupo': vp_curva_grupo,
+        'vp_curva_grupo_total': vp_curva_grupo_total,
         'vp_ativo': vp_ativo,
         'vp_ativo_total': vp_ativo_total,
+        'vp_ativo_grupo': vp_ativo_grupo,
+        'vp_ativo_grupo_total': vp_ativo_grupo_total,
         'vp_passivo': vp_passivo,
+        'vp_passivo_grupo': vp_passivo_grupo,
         'resultado': resultado,
         'resultado_total': resultado_total,
+        'resultado_grupo': resultado_grupo,
+        'resultado_grupo_total': resultado_grupo_total,
         'duracao_ativo': duracao_ativo,
         'duracao_ativo_total': duracao_ativo_total,
         'duracao_ativo_anos': duracao_ativo_anos,
         'duracao_ativo_anos_total': duracao_ativo_anos_total,
+        'duracao_ativo_grupo': duracao_ativo_grupo,
+        'duracao_ativo_grupo_total': duracao_ativo_grupo_total,
+        'duracao_ativo_anos_grupo': duracao_ativo_anos_grupo,
+        'duracao_ativo_anos_grupo_total': duracao_ativo_anos_grupo_total,
+        'duracao_passivo': duracao_passivo,
+        'duracao_passivo_grupo': duracao_passivo_grupo,
         'taxas_plano': taxas_plano,
+        'taxas_grupo': taxas_grupo,
         'passivo': passivo,
         'df': df,
     }
 
 # Executar cálculos cacheados
-calc_result = calcular_precificacao(fluxo, mapa, passivo, dias_uteis)
+try:
+    calc_result = calcular_precificacao(fluxo, mapa, passivo, contas, dias_uteis)
+except Exception as e:
+    st.error(f"Erro no cálculo: {e}")
+    st.stop()
 
 if calc_result is None:
     st.error("Nenhum título encontrado.")
@@ -341,31 +404,66 @@ if calc_result is None:
 # Desempacotar resultados
 vp_curva = calc_result['vp_curva']
 vp_curva_total = calc_result['vp_curva_total']
+vp_curva_grupo = calc_result['vp_curva_grupo']
+vp_curva_grupo_total = calc_result['vp_curva_grupo_total']
 vp_ativo = calc_result['vp_ativo']
 vp_ativo_total = calc_result['vp_ativo_total']
+vp_ativo_grupo = calc_result['vp_ativo_grupo']
+vp_ativo_grupo_total = calc_result['vp_ativo_grupo_total']
 vp_passivo = calc_result['vp_passivo']
+vp_passivo_grupo = calc_result['vp_passivo_grupo']
 resultado = calc_result['resultado']
 resultado_total = calc_result['resultado_total']
+resultado_grupo = calc_result['resultado_grupo']
+resultado_grupo_total = calc_result['resultado_grupo_total']
 duracao_ativo = calc_result['duracao_ativo']
 duracao_ativo_total = calc_result['duracao_ativo_total']
 duracao_ativo_anos = calc_result['duracao_ativo_anos']
 duracao_ativo_anos_total = calc_result['duracao_ativo_anos_total']
+duracao_ativo_grupo = calc_result['duracao_ativo_grupo']
+duracao_ativo_grupo_total = calc_result['duracao_ativo_grupo_total']
+duracao_ativo_anos_grupo = calc_result['duracao_ativo_anos_grupo']
+duracao_ativo_anos_grupo_total = calc_result['duracao_ativo_anos_grupo_total']
+duracao_passivo = calc_result['duracao_passivo']
+duracao_passivo_grupo = calc_result['duracao_passivo_grupo']
 taxas_plano = calc_result['taxas_plano']
+taxas_grupo = calc_result['taxas_grupo']
 passivo = calc_result['passivo']
 df = calc_result['df']
 
 # ─────────────────────────────────────────────
-# 3. SELEÇÃO DE PLANO
+# 3. SELEÇÃO DE PLANO / GRUPO
 # ─────────────────────────────────────────────
 
 planos = sorted(mapa["numero_plano"].dropna().unique())
 
-col1, col2, col3 = st.columns([2, 1, 1])
+nivel_analise = st.radio(
+    "Nível de análise",
+    options=["Por plano", "Por grupo"],
+    horizontal=True,
+    help="Por plano: agrega todos os grupos. Por grupo: analisa um grupo específico do plano.",
+)
+analise_por_grupo = nivel_analise == "Por grupo"
+
+col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
 with col1:
     plano = st.selectbox("Plano", planos)
 with col2:
-    ano_base_select = st.number_input("Ano-base", value=2025, min_value=2000, max_value=2100, step=1)
+    if analise_por_grupo:
+        grupos_passivo = set(passivo.loc[passivo["numero_plano"] == plano, "grupo"].dropna())
+        grupos_ativo = set(df.loc[df["numero_plano"] == plano, "grupo"].dropna())
+        grupos_plano = sorted(grupos_passivo | grupos_ativo)
+        if not grupos_plano:
+            st.error(f"Nenhum grupo encontrado para o plano {plano}.")
+            st.stop()
+        grupo = st.selectbox("Grupo", grupos_plano, key="sel_grupo")
+    else:
+        grupo = None
+        st.caption("Agregando todos os grupos")
+        st.write("")  # alinha verticalmente com os outros campos
 with col3:
+    ano_base_select = st.number_input("Ano-base", value=2025, min_value=2000, max_value=2100, step=1)
+with col4:
     st.write("")
     st.write("")
     calcular = st.button("Filtrar", type="primary", width='stretch')
@@ -373,40 +471,127 @@ with col3:
 if not calcular:
     st.stop()
 
-passivo_plano = passivo[passivo["numero_plano"] == plano].copy()
-if passivo_plano.empty:
-    st.error(f"Nenhum dado de passivo encontrado para o plano {plano}.")
-    st.stop()
+def _primeiro_ou_nan(serie):
+    return serie.iloc[0] if len(serie) else np.nan
 
-#vp_curva_total = df["vp_curva"].sum()
-#vp_ativo_total = df["vp_ativo"].sum()
-#ajuste_total   = vp_ativo_total - vp_curva_total
+if analise_por_grupo:
+    mask_pg = (passivo["numero_plano"] == plano) & (passivo["grupo"] == grupo)
+    passivo_plano = passivo[mask_pg].copy()
+    if passivo_plano.empty and df[(df["numero_plano"] == plano) & (df["grupo"] == grupo)].empty:
+        st.error(f"Nenhum dado encontrado para o plano {plano}, grupo {grupo}.")
+        st.stop()
 
-vp_ativo_plano = vp_ativo[vp_ativo["numero_plano"] == plano]["vp_ativo"].sum()
-#vp_ativo plano = vp_ativo.loc[vp_ativo["numero_plano"] == plano, "acumulado_ativo"].iloc[0]
-vp_curva_plano = vp_curva[vp_curva["numero_plano"] == plano]["vp_curva"].sum()
+    resultado_plano = resultado_grupo[
+        (resultado_grupo["numero_plano"] == plano) & (resultado_grupo["grupo"] == grupo)
+    ]
+    resultado_plano_total = resultado_grupo_total[
+        (resultado_grupo_total["numero_plano"] == plano)
+        & (resultado_grupo_total["grupo"] == grupo)
+    ]
+    taxa_plano = _primeiro_ou_nan(
+        taxas_grupo.loc[
+            (taxas_grupo["numero_plano"] == plano) & (taxas_grupo["grupo"] == grupo),
+            "taxa",
+        ]
+    )
+    if pd.isna(taxa_plano):
+        taxa_plano = taxas_plano.loc[taxas_plano["numero_plano"] == plano, "taxa"].iloc[0]
+
+    duracao_passivo_plano = _primeiro_ou_nan(
+        duracao_passivo_grupo.loc[
+            (duracao_passivo_grupo["numero_plano"] == plano)
+            & (duracao_passivo_grupo["grupo"] == grupo),
+            "duracao",
+        ]
+    )
+    vp_ativo_plano = vp_ativo_grupo.loc[
+        (vp_ativo_grupo["numero_plano"] == plano) & (vp_ativo_grupo["grupo"] == grupo),
+        "vp_ativo",
+    ].sum()
+    vp_curva_plano = vp_curva_grupo.loc[
+        (vp_curva_grupo["numero_plano"] == plano) & (vp_curva_grupo["grupo"] == grupo),
+        "vp_curva",
+    ].sum()
+    vp_ativo_plano_total = vp_ativo_grupo_total.loc[
+        (vp_ativo_grupo_total["numero_plano"] == plano)
+        & (vp_ativo_grupo_total["grupo"] == grupo),
+        "vp_ativo_total",
+    ].sum()
+    vp_curva_plano_total = vp_curva_grupo_total.loc[
+        (vp_curva_grupo_total["numero_plano"] == plano)
+        & (vp_curva_grupo_total["grupo"] == grupo),
+        "vp_curva_total",
+    ].sum()
+    duracao_ativo_plano = _primeiro_ou_nan(
+        duracao_ativo_grupo.loc[
+            (duracao_ativo_grupo["numero_plano"] == plano)
+            & (duracao_ativo_grupo["grupo"] == grupo),
+            "duracao",
+        ]
+    )
+    duracao_ativo_plano_total = _primeiro_ou_nan(
+        duracao_ativo_grupo_total.loc[
+            (duracao_ativo_grupo_total["numero_plano"] == plano)
+            & (duracao_ativo_grupo_total["grupo"] == grupo),
+            "duracao",
+        ]
+    )
+    duracao_ativo_plano_anos = _primeiro_ou_nan(
+        duracao_ativo_anos_grupo.loc[
+            (duracao_ativo_anos_grupo["numero_plano"] == plano)
+            & (duracao_ativo_anos_grupo["grupo"] == grupo),
+            "duracao",
+        ]
+    )
+    duracao_ativo_plano_anos_total = _primeiro_ou_nan(
+        duracao_ativo_anos_grupo_total.loc[
+            (duracao_ativo_anos_grupo_total["numero_plano"] == plano)
+            & (duracao_ativo_anos_grupo_total["grupo"] == grupo),
+            "duracao",
+        ]
+    )
+    titulos_filtro = (df["numero_plano"] == plano) & (df["grupo"] == grupo)
+    titulo_escopo = f"Plano {plano}  ·  Grupo {grupo}  ·  Base 31/12/{ANO_BASE}"
+    nome_arquivo = f"resultado_ajuste_plano_{plano}_grupo_{grupo}.xlsx"
+else:
+    passivo_plano = passivo[passivo["numero_plano"] == plano].copy()
+    if passivo_plano.empty:
+        st.error(f"Nenhum dado de passivo encontrado para o plano {plano}.")
+        st.stop()
+    resultado_plano = resultado[resultado["numero_plano"] == plano]
+    resultado_plano_total = resultado_total[resultado_total["numero_plano"] == plano]
+    taxa_plano = taxas_plano.loc[taxas_plano["numero_plano"] == plano, "taxa"].iloc[0]
+    duracao_passivo_plano = duracao_passivo.loc[
+        duracao_passivo["numero_plano"] == plano, "duracao"
+    ].iloc[0]
+    vp_ativo_plano = vp_ativo[vp_ativo["numero_plano"] == plano]["vp_ativo"].sum()
+    vp_curva_plano = vp_curva[vp_curva["numero_plano"] == plano]["vp_curva"].sum()
+    vp_ativo_plano_total = vp_ativo_total[vp_ativo_total["numero_plano"] == plano]["vp_ativo_total"].sum()
+    vp_curva_plano_total = vp_curva_total[vp_curva_total["numero_plano"] == plano]["vp_curva_total"].sum()
+    duracao_ativo_plano = duracao_ativo.loc[duracao_ativo["numero_plano"] == plano, "duracao"].iloc[0]
+    duracao_ativo_plano_total = duracao_ativo_total.loc[
+        duracao_ativo_total["numero_plano"] == plano, "duracao"
+    ].iloc[0]
+    duracao_ativo_plano_anos = duracao_ativo_anos.loc[
+        duracao_ativo_anos["numero_plano"] == plano, "duracao"
+    ].iloc[0]
+    duracao_ativo_plano_anos_total = duracao_ativo_anos_total.loc[
+        duracao_ativo_anos_total["numero_plano"] == plano, "duracao"
+    ].iloc[0]
+    titulos_filtro = df["numero_plano"] == plano
+    titulo_escopo = f"Plano {plano}  ·  Base 31/12/{ANO_BASE}"
+    nome_arquivo = f"resultado_ajuste_plano_{plano}.xlsx"
+
 ajuste_plano = vp_ativo_plano - vp_curva_plano
-taxa_plano = taxas_plano.loc[taxas_plano["numero_plano"] == plano, "taxa"].iloc[0]
-resultado_plano = resultado[resultado["numero_plano"] == plano]
-
-vp_ativo_plano_total = vp_ativo_total[vp_ativo_total["numero_plano"] == plano]["vp_ativo_total"].sum()
-vp_curva_plano_total = vp_curva_total[vp_curva_total["numero_plano"] == plano]["vp_curva_total"].sum()
 ajuste_plano_total = vp_ativo_plano_total - vp_curva_plano_total
-resultado_plano_total = resultado_total[resultado_total["numero_plano"] == plano]
-duracao_ativo_plano = duracao_ativo.loc[duracao_ativo["numero_plano"] == plano, "duracao"].iloc[0]
-duracao_ativo_plano_total = duracao_ativo_total.loc[duracao_ativo_total["numero_plano"] == plano, "duracao"].iloc[0]
-duracao_ativo_plano_anos = duracao_ativo_anos.loc[duracao_ativo_anos["numero_plano"] == plano, "duracao"].iloc[0]
-duracao_ativo_plano_anos_total = duracao_ativo_anos_total.loc[duracao_ativo_anos_total["numero_plano"] == plano, "duracao"].iloc[0]
-#duracao_curva_plano = duracao_curva[duracao_curva["numero_plano"] == plano]["duracao"].iloc[0]
 
 # ─────────────────────────────────────────────
 # 5. EXIBIR RESULTADOS
 # ─────────────────────────────────────────────
 
 st.divider()
-st.subheader(f"Plano {plano}  ·  Base 31/12/{ANO_BASE}")
-
-def kpi_card(titulo, valor, delta=None):
+st.subheader(titulo_escopo)
+def kpi_card(titulo, valor, delta=None, alerta=False):
     """Cria um card de KPI com título, valor e delta opcional."""
     cor_delta = "green" if delta and delta >= 0 else "red"
     sinal = "+" if delta and delta >= 0 else ""
@@ -415,14 +600,22 @@ def kpi_card(titulo, valor, delta=None):
     if delta is not None:
         delta_html = f'<div style="color:{cor_delta}; font-size:14px;">{sinal}{perc_br(delta)}</div>'
 
+    if alerta:
+        cor_titulo = "#7A1F1F"
+        cor_valor = "#7A1F1F"
+    else:
+        cor_titulo = "dark-gray"
+        cor_valor = "inherit"
+
     return f"""
     <div style="
         padding: 3px 4px;
         border-radius: 10px;
         margin-bottom: 5px;
+        {'background-color: #FDECEC;' if alerta else 'background-color: #FFFFFF;'}
     ">
-        <div style="font-size:13px; color:dark-gray;">{titulo}</div>
-        <div style="font-size:18px; font-weight:600;">{valor}</div>
+        <div style="font-size:13px; color:{cor_titulo};">{titulo}</div>
+        <div style="font-size:18px; font-weight:600; color:{cor_valor};">{valor}</div>
         {delta_html}
     </div>
     """
@@ -446,21 +639,33 @@ c2.markdown(kpi_card("Taxa atuarial", perc_br(taxa_plano*100)), unsafe_allow_htm
 c4, c5, c6 = st.columns(3)
 c4.markdown(kpi_card("VP Ativo (taxa atuarial)", moeda_br(vp_ativo_plano)), unsafe_allow_html=True)
 c5.markdown(kpi_card("VP Ativo (taxa curva)", moeda_br(vp_curva_plano)), unsafe_allow_html=True)
-c6.markdown(kpi_card("Ajuste de precificação", moeda_br(ajuste_plano), (ajuste_plano/vp_passivo_total*100)), unsafe_allow_html=True)
+c6.markdown(kpi_card("Ajuste de precificação", moeda_br(ajuste_plano), (ajuste_plano/vp_passivo_total*100) if vp_passivo_total else None), unsafe_allow_html=True)
 
 c7, c8, c9 = st.columns(3)
 c7.markdown(kpi_card("VP Ativo (taxa atuarial) - Total", moeda_br(vp_ativo_plano_total)), unsafe_allow_html=True)
 c8.markdown(kpi_card("VP Ativo (taxa curva) - Total", moeda_br(vp_curva_plano_total)), unsafe_allow_html=True)
-c9.markdown(kpi_card("Ajuste de precificação - Total", moeda_br(ajuste_plano_total), (ajuste_plano_total/vp_passivo_total*100)), unsafe_allow_html=True)
+c9.markdown(kpi_card("Ajuste de precificação - Total", moeda_br(ajuste_plano_total), (ajuste_plano_total/vp_passivo_total*100) if vp_passivo_total else None), unsafe_allow_html=True)
+
+alerta_duracao = (
+    pd.notna(duracao_ativo_plano_anos)
+    and pd.notna(duracao_passivo_plano)
+    and duracao_ativo_plano_anos > duracao_passivo_plano
+)
+alerta_duracao_total = (
+    pd.notna(duracao_ativo_plano_anos_total)
+    and pd.notna(duracao_passivo_plano)
+    and duracao_ativo_plano_anos_total > duracao_passivo_plano
+)
 
 c10, c11, c12 = st.columns(3)
-c10.markdown(kpi_card("Duração do ativo (dias)", f"{formatar_numero(duracao_ativo_plano, 2)} dias ({formatar_numero(duracao_ativo_plano/252, 4)} anos)"), unsafe_allow_html=True)
-c11.markdown(kpi_card("Duração do ativo (dias) - Total", f"{formatar_numero(duracao_ativo_plano_total, 2)} dias ({formatar_numero(duracao_ativo_plano_total/252, 4)} anos)"), unsafe_allow_html=True)
+c10.markdown(kpi_card("Duração do ativo (dias)", f"{formatar_numero(duracao_ativo_plano, 2)} dias ({formatar_numero(duracao_ativo_plano/252, 4)} anos)", alerta=alerta_duracao), unsafe_allow_html=True)
+c11.markdown(kpi_card("Duração do ativo (dias) - Total", f"{formatar_numero(duracao_ativo_plano_total, 2)} dias ({formatar_numero(duracao_ativo_plano_total/252, 4)} anos)", alerta=alerta_duracao_total), unsafe_allow_html=True)
 #c12.markdown(kpi_card("Duração do ativo (taxa curva)", f"{formatar_numero(duracao_curva_plano, 2)} dias"), unsafe_allow_html=True)
 
 c13, c14, c15 = st.columns(3)
-c13.markdown(kpi_card("Duração do ativo (anos)", f"{formatar_numero(duracao_ativo_plano_anos, 4)} anos"), unsafe_allow_html=True)
-c14.markdown(kpi_card("Duração do ativo (anos) - Total", f"{formatar_numero(duracao_ativo_plano_anos_total, 4)} anos"), unsafe_allow_html=True)
+c13.markdown(kpi_card("Duração do ativo (anos)", f"{formatar_numero(duracao_ativo_plano_anos, 4)} anos", alerta=alerta_duracao), unsafe_allow_html=True)
+c14.markdown(kpi_card("Duração do ativo (anos) - Total", f"{formatar_numero(duracao_ativo_plano_anos_total, 4)} anos", alerta=alerta_duracao_total), unsafe_allow_html=True)
+c15.markdown(kpi_card("Duração do passivo (anos)", f"{formatar_numero(duracao_passivo_plano, 4)} anos"), unsafe_allow_html=True)
 
 #m3, m4, m5 = st.columns(3)
 #m3.metric("VP Ativo (tx. atuarial)", moeda_br(vp_ativo_total))
@@ -588,7 +793,7 @@ st.divider()
 
 st.subheader("Títulos do Plano")
 
-titulos_plano = df[df["numero_plano"] == plano].copy()
+titulos_plano = df[titulos_filtro].copy()
 
 tabela_titulos = (
     titulos_plano
@@ -627,13 +832,14 @@ st.divider()
 
 df_ajuste = pd.DataFrame([{
     "numero_plano":        plano,
+    "grupo":               grupo if analise_por_grupo else "(todos)",
     "data_base":           DATA_BASE.date(),
     "vp_curva":            vp_curva_plano,
     "vp_ativo":            vp_ativo_plano,
     "ajuste":              ajuste_plano,
 }])
 
-df_plano = df[df["numero_plano"] == plano]
+df_plano = df[titulos_filtro]
 
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
@@ -645,6 +851,6 @@ with pd.ExcelWriter(buf, engine="openpyxl") as writer:
 st.download_button(
     label="⬇️  Baixar resultado (.xlsx)",
     data=buf.getvalue(),
-    file_name=f"resultado_ajuste_plano_{plano}.xlsx",
+    file_name=nome_arquivo,
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
