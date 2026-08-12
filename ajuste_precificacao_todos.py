@@ -74,14 +74,6 @@ except Exception as e:
     st.error(f"Erro ao ler o arquivo: {e}")
     st.stop()
 
-if 'grupo' not in mapa.columns:
-    mapa['grupo'] = 'Único'
-mapa['grupo'] = mapa['grupo'].fillna('Único').astype(str)
-
-if 'grupo' not in passivo.columns:
-    passivo['grupo'] = 'Único'
-passivo['grupo'] = passivo['grupo'].fillna('Único').astype(str)
-
 # ─────────────────────────────────────────────
 # 4. PREPARAR DADOS (CACHEADO)
 # ─────────────────────────────────────────────
@@ -89,14 +81,14 @@ passivo['grupo'] = passivo['grupo'].fillna('Único').astype(str)
 @st.cache_data(show_spinner="Calculando…")
 def calcular_precificacao(fluxo, mapa, passivo, contas, dias_uteis):
     """Realiza todos os cálculos de precificação uma única vez e cacheia o resultado."""
-    
+
     # datas
     fluxo = fluxo.copy()
     mapa = mapa.copy()
     passivo = passivo.copy()
     contas = contas.copy()
     dias_uteis = dias_uteis.copy()
-    
+
     fluxo["data_pgto"] = pd.to_datetime(fluxo["data_pgto"])
     dias_uteis["data"] = pd.to_datetime(dias_uteis["data"])
     dias_uteis = dias_uteis.sort_values("data").reset_index(drop=True)
@@ -358,7 +350,7 @@ def calcular_precificacao(fluxo, mapa, passivo, contas, dias_uteis):
     )
 
     print(f"Calculado {datetime.now()}")
-    
+
     return {
         'vp_curva': vp_curva,
         'vp_curva_total': vp_curva_total,
@@ -432,7 +424,91 @@ passivo = calc_result['passivo']
 df = calc_result['df']
 
 # ─────────────────────────────────────────────
-# 3. SELEÇÃO DE PLANO / GRUPO
+# 3. RESUMO MACRO DE TODOS OS PLANOS
+# ─────────────────────────────────────────────
+
+def gerar_resumo_todos_planos(mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, duracao_passivo, taxas_plano):
+    """Gera um resumo consolidado com todos os planos."""
+    planos_lista = sorted(mapa["numero_plano"].dropna().unique())
+    resumo_data = []
+
+    for num_plano in planos_lista:
+        # VP Passivo
+        vp_pass = passivo[passivo["numero_plano"] == num_plano]['vp_passivo'].sum()
+
+        # VP Ativo (taxa atuarial)
+        vp_ativo_val = vp_ativo[vp_ativo["numero_plano"] == num_plano]["vp_ativo"].sum()
+        vp_ativo_total_val = vp_ativo_total[vp_ativo_total["numero_plano"] == num_plano]["vp_ativo_total"].sum()
+
+        # VP Ativo (taxa curva)
+        vp_curva_val = vp_curva[vp_curva["numero_plano"] == num_plano]["vp_curva"].sum()
+
+        # Ajuste
+        ajuste_val = vp_ativo_val - vp_curva_val
+        ajuste_perc = (ajuste_val / vp_pass) if vp_pass != 0 else 0
+
+        # Taxa atuarial
+        taxa = taxas_plano[taxas_plano["numero_plano"] == num_plano]["taxa"].iloc[0] if len(taxas_plano[taxas_plano["numero_plano"] == num_plano]) > 0 else np.nan
+
+        # Duração ativo (dias e anos)
+        dur_ativo_dias = duracao_ativo[duracao_ativo["numero_plano"] == num_plano]["duracao"].iloc[0] if len(duracao_ativo[duracao_ativo["numero_plano"] == num_plano]) > 0 else np.nan
+        dur_ativo_anos = duracao_ativo_anos[duracao_ativo_anos["numero_plano"] == num_plano]["duracao"].iloc[0] if len(duracao_ativo_anos[duracao_ativo_anos["numero_plano"] == num_plano]) > 0 else np.nan
+        dur_ativo_total_dias = duracao_ativo_total[duracao_ativo_total["numero_plano"] == num_plano]["duracao"].iloc[0] if len(duracao_ativo_total[duracao_ativo_total["numero_plano"] == num_plano]) > 0 else np.nan
+        dur_ativo_total_anos = duracao_ativo_anos_total[duracao_ativo_anos_total["numero_plano"] == num_plano]["duracao"].iloc[0] if len(duracao_ativo_anos_total[duracao_ativo_anos_total["numero_plano"] == num_plano]) > 0 else np.nan
+
+        # Duração passivo (anos)
+        dur_passivo = duracao_passivo[duracao_passivo["numero_plano"] == num_plano]["duracao"].iloc[0] if len(duracao_passivo[duracao_passivo["numero_plano"] == num_plano]) > 0 else np.nan
+
+        resumo_data.append({
+            "Plano": num_plano,
+            "Data Base": DATA_BASE.date(),
+            "VP Passivo": vp_pass,
+            "Taxa Atuarial": taxa,
+            "VP Ativo (Taxa Atuarial)": vp_ativo_val,
+            "VP Ativo (Taxa Curva)": vp_curva_val,
+            "Ajuste de Precificação": ajuste_val,
+            "Ajuste (%)": ajuste_perc,
+            "Duração Ativo (dias)": dur_ativo_dias,
+            "Duração Ativo (anos)": dur_ativo_anos,
+            "Duração Passivo (anos)": dur_passivo,
+            "Diferença Duração (anos)": dur_ativo_anos - dur_passivo if not pd.isna(dur_ativo_anos) and not pd.isna(dur_passivo) else np.nan,
+            "VP Ativo - Carteira": vp_ativo_total_val,
+            "Duração Ativo Carteira (dias)": dur_ativo_total_dias,
+            "Duração Ativo Carteira (anos)": dur_ativo_total_anos,
+            "Diferença Duração Carteira (anos)": dur_ativo_total_anos - dur_passivo if not pd.isna(dur_ativo_total_anos) and not pd.isna(dur_passivo) else np.nan,
+        })
+
+    return pd.DataFrame(resumo_data)
+
+# Gerar resumo apenas uma vez (use session_state para evitar recálculo)
+if 'df_resumo_todos' not in st.session_state:
+    st.session_state.df_resumo_todos = gerar_resumo_todos_planos(
+        mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, 
+        duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, 
+        duracao_passivo, taxas_plano
+    )
+
+df_resumo_todos = st.session_state.df_resumo_todos
+
+# Download: Resumo de todos os planos
+st.subheader("📊 Resumo Macro - Todos os Planos")
+buf_resumo_todos = io.BytesIO()
+with pd.ExcelWriter(buf_resumo_todos, engine="openpyxl") as writer:
+    df_resumo_todos.to_excel(writer, sheet_name="Resumo", index=False)
+
+col_down1, col_down2 = st.columns([2, 1])
+with col_down1:
+    st.download_button(
+        label="📋  Baixar resumo macro de todos os planos (.xlsx)",
+        data=buf_resumo_todos.getvalue(),
+        file_name=f"resumo_macro_todos_planos_{DATA_BASE.date()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+st.divider()
+
+# ─────────────────────────────────────────────
+# 4. SELEÇÃO DE PLANO / GRUPO
 # ─────────────────────────────────────────────
 
 planos = sorted(mapa["numero_plano"].dropna().unique())
@@ -849,7 +925,7 @@ with pd.ExcelWriter(buf, engine="openpyxl") as writer:
     df_ajuste.to_excel(writer, sheet_name="Ajuste",    index=False)
 
 st.download_button(
-    label="⬇️  Baixar resultado (.xlsx)",
+    label="⬇️  Baixar resultado completo (.xlsx)",
     data=buf.getvalue(),
     file_name=nome_arquivo,
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
