@@ -490,6 +490,31 @@ if 'df_resumo_todos' not in st.session_state:
 
 df_resumo_todos = st.session_state.df_resumo_todos
 
+# Diagnóstico opcional: mostrar planos que existem no mapa mas não têm VP Ativo
+with st.expander("🔍 Diagnóstico: planos sem VP Ativo (opcional)"):
+    if st.button("Gerar diagnóstico de planos ausentes", key="diag_planos"):
+        planos_mapa = sorted(mapa["numero_plano"].dropna().unique())
+        planos_vp_ativo = sorted(vp_ativo["numero_plano"].dropna().unique())
+        planos_passivo = sorted(passivo["numero_plano"].dropna().unique())
+
+        faltam_vp = sorted(set(planos_mapa) - set(planos_vp_ativo))
+        faltam_mapa = sorted(set(planos_passivo) - set(planos_mapa))
+
+        df_faltam = pd.DataFrame({
+            "plano": planos_mapa,
+            "vp_ativo_sum": [vp_ativo.loc[vp_ativo["numero_plano"] == p, "vp_ativo"].sum() if p in vp_ativo["numero_plano"].values else 0 for p in planos_mapa],
+            "vp_passivo_sum": [passivo.loc[passivo["numero_plano"] == p, "vp_passivo"].sum() for p in planos_mapa],
+        })
+
+        st.write(f"Planos no mapa: {len(planos_mapa)} — com VP Ativo: {len(planos_vp_ativo)} — em passivo: {len(planos_passivo)}")
+        st.write("Planos do mapa sem VP Ativo (ex.: aparecem no resumo local, mas sem ativos calculados):")
+        st.dataframe(pd.DataFrame({"planos_mapa_sem_vp_ativo": faltam_vp}))
+        if faltam_mapa:
+            st.write("Planos presentes no passivo mas ausentes do mapa:")
+            st.dataframe(pd.DataFrame({"planos_passivo_sem_mapa": faltam_mapa}))
+        st.write("Visão detalhada (soma VP Ativo / VP Passivo por plano):")
+        st.dataframe(df_faltam)
+
 # Download: Resumo de todos os planos
 st.subheader("📊 Resumo Macro - Todos os Planos")
 buf_resumo_todos = io.BytesIO()
