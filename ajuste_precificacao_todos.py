@@ -622,8 +622,11 @@ with st.expander("🔎 Diagnóstico por plano: títulos brutos vs usados"):
         except Exception:
             pass
         try:
-            raw_fluxo = pd.read_excel(io.BytesIO(uploaded.read()), sheet_name='Titulos')
-            raw_mapa = pd.read_excel(io.BytesIO(uploaded.read()), sheet_name='titulos_plano')
+            excel_bytes = uploaded.read()
+            buf1 = io.BytesIO(excel_bytes)
+            buf2 = io.BytesIO(excel_bytes)
+            raw_fluxo = pd.read_excel(buf1, sheet_name='Titulos')
+            raw_mapa = pd.read_excel(buf2, sheet_name='titulos_plano')
         except Exception as e:
             st.error(f"Erro ao ler abas brutas: {e}")
             raw_fluxo = pd.DataFrame()
