@@ -614,6 +614,78 @@ with st.expander("🔧 Diagnóstico de ambiente e parser (Excel)"):
             mime="application/json",
         )
 
+# Diagnóstico detalhado por plano (raw vs usado)
+with st.expander("🔎 Diagnóstico por plano: títulos brutos vs usados"):
+    if st.button("Gerar diagnóstico por plano", key="diag_planos_detalhado"):
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+        try:
+            raw_fluxo = pd.read_excel(io.BytesIO(uploaded.read()), sheet_name='Titulos')
+            raw_mapa = pd.read_excel(io.BytesIO(uploaded.read()), sheet_name='titulos_plano')
+        except Exception as e:
+            st.error(f"Erro ao ler abas brutas: {e}")
+            raw_fluxo = pd.DataFrame()
+            raw_mapa = pd.DataFrame()
+
+        # normalizar chaves
+        if 'ISIN' in raw_fluxo.columns:
+            raw_fluxo['ISIN'] = raw_fluxo['ISIN'].astype(str).str.strip()
+        if 'ISIN' in raw_mapa.columns:
+            raw_mapa['ISIN'] = raw_mapa['ISIN'].astype(str).str.strip()
+        if 'numero_plano' in raw_mapa.columns:
+            raw_mapa['numero_plano'] = raw_mapa['numero_plano'].astype(str).str.strip()
+
+        # merge bruto para contar títulos por plano no arquivo
+        if not raw_fluxo.empty and not raw_mapa.empty:
+            merge_raw = raw_fluxo.merge(raw_mapa[['ISIN','numero_plano']], on='ISIN', how='left')
+        else:
+            merge_raw = pd.DataFrame()
+
+        planos = sorted(set(list(mapa['numero_plano'].dropna().astype(str).str.strip().unique()) + list(passivo['numero_plano'].dropna().astype(str).str.strip().unique())))
+
+        rows = []
+        for p in planos:
+            vp_sum = float(vp_ativo.loc[vp_ativo['numero_plano'].astype(str).str.strip() == p, 'vp_ativo'].sum()) if 'numero_plano' in vp_ativo.columns else 0.0
+            n_raw = int(merge_raw[merge_raw['numero_plano'].astype(str).str.strip() == p].shape[0]) if not merge_raw.empty else 0
+            n_used = int(df[df['numero_plano'].astype(str).str.strip() == p].shape[0]) if 'numero_plano' in df.columns else 0
+            in_mapa = p in set(mapa['numero_plano'].dropna().astype(str).str.strip().unique())
+            in_passivo = p in set(passivo['numero_plano'].dropna().astype(str).str.strip().unique())
+            probable_reason = None
+            if vp_sum == 0:
+                if n_raw == 0 and in_passivo and not in_mapa:
+                    probable_reason = 'Plano presente no passivo, sem títulos no mapa'
+                elif n_raw > 0 and n_used == 0:
+                    probable_reason = 'Títulos presentes no arquivo, mas foram filtrados (p.ex. prazo_du <= 0 ou data não mapeada)'
+                elif n_raw == 0 and in_mapa:
+                    probable_reason = 'Plano no mapa, mas sem títulos correspondentes no arquivo Titulos'
+                else:
+                    probable_reason = 'VP Ativo zero — investigar entradas'
+
+            rows.append({
+                'plano': p,
+                'vp_ativo_sum': vp_sum,
+                'n_titulos_raw': n_raw,
+                'n_titulos_usados': n_used,
+                'in_mapa': in_mapa,
+                'in_passivo': in_passivo,
+                'provavel_motivo': probable_reason,
+            })
+
+        df_diag = pd.DataFrame(rows)
+        df_missing = df_diag[df_diag['vp_ativo_sum'] == 0].sort_values(['in_passivo','n_titulos_raw'], ascending=[False,False])
+        st.write(f"Planos totais analisados: {len(df_diag)} — planos com VP Ativo = 0: {len(df_missing)}")
+        st.dataframe(df_missing)
+
+        csv_bytes = df_missing.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label='📥 Baixar planos com VP_Ativo=0 (CSV)',
+            data=csv_bytes,
+            file_name=f'planos_sem_vp_ativo_{DATA_BASE.date()}.csv',
+            mime='text/csv',
+        )
+
 # Download: Resumo de todos os planos
 st.subheader("📊 Resumo Macro - Todos os Planos")
 buf_resumo_todos = io.BytesIO()
