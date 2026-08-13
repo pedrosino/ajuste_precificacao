@@ -689,6 +689,23 @@ with st.expander("🔎 Diagnóstico por plano: títulos brutos vs usados"):
             mime='text/csv',
         )
 
+        # Expander para inspecionar linhas do `df` para planos problemáticos
+        with st.expander("🔬 Inspecionar entradas do df para planos com VP_Ativo=0"):
+            planos_problem = df_missing['plano'].astype(str).tolist()
+            if planos_problem:
+                sel = st.selectbox("Escolha um plano para inspecionar", planos_problem)
+                # mostrar primeiras linhas do df processado para esse plano
+                if 'numero_plano' in df.columns:
+                    df_sel = df[df['numero_plano'].astype(str).str.strip() == str(sel)].copy()
+                    if not df_sel.empty:
+                        cols_show = [c for c in ['ISIN','quantidade','qtde_total','valor','fluxo','taxa_diaria','taxa_dia','prazo_du','vp_ativo','vp_ativo_total'] if c in df_sel.columns]
+                        st.write(f"Mostrando {min(200, len(df_sel))} linhas do df para o plano {sel}:")
+                        st.dataframe(df_sel[cols_show].head(200))
+                    else:
+                        st.write("Nenhuma linha encontrada no df processado para esse plano.")
+            else:
+                st.write("Nenhum plano com VP_Ativo=0 encontrado para inspecionar.")
+
 # Download: Resumo de todos os planos
 st.subheader("📊 Resumo Macro - Todos os Planos")
 buf_resumo_todos = io.BytesIO()
