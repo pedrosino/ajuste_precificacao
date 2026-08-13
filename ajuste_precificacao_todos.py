@@ -502,15 +502,15 @@ def gerar_resumo_todos_planos(mapa, passivo, vp_ativo, vp_ativo_total, vp_curva,
 
     return pd.DataFrame(resumo_data)
 
-# Gerar resumo apenas uma vez (use session_state para evitar recálculo)
-if 'df_resumo_todos' not in st.session_state:
-    st.session_state.df_resumo_todos = gerar_resumo_todos_planos(
-        mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, 
-        duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, 
-        duracao_passivo, taxas_plano
-    )
+# Gerar resumo sempre (evita usar versão em cache que pode estar desatualizada no deploy)
+df_resumo_todos = gerar_resumo_todos_planos(
+    mapa, passivo, vp_ativo, vp_ativo_total, vp_curva,
+    duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total,
+    duracao_passivo, taxas_plano
+)
 
-df_resumo_todos = st.session_state.df_resumo_todos
+# Mostrar contagens para diagnóstico (compare local vs deploy)
+st.write(f"Resumo gerado — linhas: {len(df_resumo_todos)}; planos únicos no resumo: {df_resumo_todos['Plano'].nunique() if not df_resumo_todos.empty else 0}")
 
 # Diagnóstico opcional: mostrar planos que existem no mapa mas não têm VP Ativo
 with st.expander("🔍 Diagnóstico: planos sem VP Ativo (opcional)"):
