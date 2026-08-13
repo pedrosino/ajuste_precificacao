@@ -446,8 +446,11 @@ df = calc_result['df']
 def gerar_resumo_todos_planos(mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, duracao_passivo, taxas_plano):
     """Gera um resumo consolidado com todos os planos."""
     # Incluir planos presentes no mapa ou no passivo (evita omitir planos sem mapeamento)
-    planos_mapa = set(mapa["numero_plano"].dropna().unique())
-    planos_passivo = set(passivo["numero_plano"].dropna().unique())
+    def _to_str_set(s):
+        return set(s.dropna().astype(str).str.strip().tolist())
+
+    planos_mapa = _to_str_set(mapa["numero_plano"]) if "numero_plano" in mapa.columns else set()
+    planos_passivo = _to_str_set(passivo["numero_plano"]) if "numero_plano" in passivo.columns else set()
     planos_lista = sorted(planos_mapa | planos_passivo)
     resumo_data = []
 
@@ -512,17 +515,17 @@ df_resumo_todos = st.session_state.df_resumo_todos
 # Diagnóstico opcional: mostrar planos que existem no mapa mas não têm VP Ativo
 with st.expander("🔍 Diagnóstico: planos sem VP Ativo (opcional)"):
     if st.button("Gerar diagnóstico de planos ausentes", key="diag_planos"):
-        planos_mapa = sorted(mapa["numero_plano"].dropna().unique())
-        planos_vp_ativo = sorted(vp_ativo["numero_plano"].dropna().unique())
-        planos_passivo = sorted(passivo["numero_plano"].dropna().unique())
+        planos_mapa = sorted(mapa["numero_plano"].dropna().astype(str).str.strip().unique()) if "numero_plano" in mapa.columns else []
+        planos_vp_ativo = sorted(vp_ativo["numero_plano"].dropna().astype(str).str.strip().unique()) if "numero_plano" in vp_ativo.columns else []
+        planos_passivo = sorted(passivo["numero_plano"].dropna().astype(str).str.strip().unique()) if "numero_plano" in passivo.columns else []
 
         faltam_vp = sorted(set(planos_mapa) - set(planos_vp_ativo))
         faltam_mapa = sorted(set(planos_passivo) - set(planos_mapa))
 
         df_faltam = pd.DataFrame({
             "plano": planos_mapa,
-            "vp_ativo_sum": [vp_ativo.loc[vp_ativo["numero_plano"] == p, "vp_ativo"].sum() if p in vp_ativo["numero_plano"].values else 0 for p in planos_mapa],
-            "vp_passivo_sum": [passivo.loc[passivo["numero_plano"] == p, "vp_passivo"].sum() for p in planos_mapa],
+            "vp_ativo_sum": [vp_ativo.loc[vp_ativo["numero_plano"].astype(str).str.strip() == p, "vp_ativo"].sum() if "numero_plano" in vp_ativo.columns else 0 for p in planos_mapa],
+            "vp_passivo_sum": [passivo.loc[passivo["numero_plano"].astype(str).str.strip() == p, "vp_passivo"].sum() if "numero_plano" in passivo.columns else 0 for p in planos_mapa],
         })
 
         st.write(f"Planos no mapa: {len(planos_mapa)} — com VP Ativo: {len(planos_vp_ativo)} — em passivo: {len(planos_passivo)}")
@@ -533,6 +536,83 @@ with st.expander("🔍 Diagnóstico: planos sem VP Ativo (opcional)"):
             st.dataframe(pd.DataFrame({"planos_passivo_sem_mapa": faltam_mapa}))
         st.write("Visão detalhada (soma VP Ativo / VP Passivo por plano):")
         st.dataframe(df_faltam)
+
+# Diagnóstico de ambiente e parser (versions + tentativa de leitura com engines diferentes)
+with st.expander("🔧 Diagnóstico de ambiente e parser (Excel)"):
+    if st.button("Gerar diagnóstico de parser/ambiente", key="diag_parser"):
+        import sys, importlib, json
+
+        def _ver(m):
+            try:
+                mod = importlib.import_module(m)
+                return getattr(mod, "__version__", str(mod))
+            except Exception as e:
+                return f"erro: {e}"
+
+        report = {}
+        report['versions'] = {
+            'python': sys.version.splitlines()[0],
+            'pandas': _ver('pandas'),
+            'numpy': _ver('numpy'),
+            'openpyxl': _ver('openpyxl'),
+            'xlrd': _ver('xlrd'),
+            'pyxlsb': _ver('pyxlsb'),
+        }
+
+        # ler bytes do upload (voltar para início)
+        try:
+            uploaded.seek(0)
+        except Exception:
+            pass
+        try:
+            excel_bytes = uploaded.read()
+        except Exception as e:
+            st.error(f"Não foi possível ler o arquivo enviado: {e}")
+            excel_bytes = None
+
+        reads = []
+        if excel_bytes is not None:
+            buf = io.BytesIO(excel_bytes)
+            for engine in [None, 'openpyxl', 'xlrd']:
+                try:
+                    buf.seek(0)
+                    if engine is None:
+                        df_read = pd.read_excel(buf, sheet_name='Titulos')
+                        engine_name = 'pandas-default'
+                    else:
+                        df_read = pd.read_excel(buf, sheet_name='Titulos', engine=engine)
+                        engine_name = engine
+
+                    reads.append({
+                        'engine': engine_name,
+                        'shape': df_read.shape,
+                        'columns': df_read.columns.tolist(),
+                        'dtypes': {c: str(t) for c, t in df_read.dtypes.items()},
+                        'n_null_numero_plano': int(df_read['numero_plano'].isna().sum()) if 'numero_plano' in df_read.columns else None,
+                        'n_null_vp_ativo': int(df_read['vp_ativo'].isna().sum()) if 'vp_ativo' in df_read.columns else None,
+                        'head_5': df_read.head(5).to_dict(orient='records'),
+                    })
+                except Exception as e:
+                    reads.append({'engine': engine or 'pandas-default', 'error': str(e)})
+        else:
+            reads.append({'error': 'arquivo não disponível para leitura'})
+
+        report['reads'] = reads
+
+        st.write("**Versões detectadas:**")
+        st.json(report['versions'])
+        st.write("**Tentativas de leitura (resumo):**")
+        for r in reads:
+            st.write(r)
+
+        # disponibilizar download do relatório
+        report_json = json.dumps(report, ensure_ascii=False, indent=2)
+        st.download_button(
+            label="📥 Baixar relatório de diagnóstico (JSON)",
+            data=report_json,
+            file_name=f"diagnostico_parser_{DATA_BASE.date()}.json",
+            mime="application/json",
+        )
 
 # Download: Resumo de todos os planos
 st.subheader("📊 Resumo Macro - Todos os Planos")
