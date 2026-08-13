@@ -89,6 +89,22 @@ def calcular_precificacao(fluxo, mapa, passivo, contas, dias_uteis):
     contas = contas.copy()
     dias_uteis = dias_uteis.copy()
 
+    # Normalização: garantir número/plano como string e sem espaços/`.0`
+    def _norm_plano(col):
+        if col.name not in (None, ''):
+            return (
+                col.fillna("")
+                   .astype(str)
+                   .str.strip()
+                   .str.replace(r"\.0$", "", regex=True)
+            )
+        return col
+
+    if 'numero_plano' in mapa.columns:
+        mapa['numero_plano'] = _norm_plano(mapa['numero_plano'])
+    if 'numero_plano' in passivo.columns:
+        passivo['numero_plano'] = _norm_plano(passivo['numero_plano'])
+
     fluxo["data_pgto"] = pd.to_datetime(fluxo["data_pgto"])
     dias_uteis["data"] = pd.to_datetime(dias_uteis["data"])
     dias_uteis = dias_uteis.sort_values("data").reset_index(drop=True)
@@ -429,7 +445,10 @@ df = calc_result['df']
 
 def gerar_resumo_todos_planos(mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, duracao_passivo, taxas_plano):
     """Gera um resumo consolidado com todos os planos."""
-    planos_lista = sorted(mapa["numero_plano"].dropna().unique())
+    # Incluir planos presentes no mapa ou no passivo (evita omitir planos sem mapeamento)
+    planos_mapa = set(mapa["numero_plano"].dropna().unique())
+    planos_passivo = set(passivo["numero_plano"].dropna().unique())
+    planos_lista = sorted(planos_mapa | planos_passivo)
     resumo_data = []
 
     for num_plano in planos_lista:
