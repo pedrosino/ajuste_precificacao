@@ -60,6 +60,7 @@ if not uploaded:
 
 @st.cache_data(show_spinner="Lendo planilha…")
 def load_workbook(file_bytes: bytes):
+    """Lê as abas do arquivo Excel e retorna os DataFrames correspondentes."""
     buf = io.BytesIO(file_bytes)
     fluxo      = pd.read_excel(buf, sheet_name="Titulos")
     mapa       = pd.read_excel(buf, sheet_name="titulos_plano")
@@ -483,8 +484,8 @@ def gerar_resumo_todos_planos(mapa, passivo, vp_ativo, vp_ativo_total, vp_curva,
 # Gerar resumo apenas uma vez (use session_state para evitar recálculo)
 if 'df_resumo_todos' not in st.session_state:
     st.session_state.df_resumo_todos = gerar_resumo_todos_planos(
-        mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, 
-        duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, 
+        mapa, passivo, vp_ativo, vp_ativo_total, vp_curva,
+        duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total,
         duracao_passivo, taxas_plano
     )
 
@@ -540,11 +541,17 @@ with col2:
 with col3:
     ano_base_select = st.number_input("Ano-base", value=2025, min_value=2000, max_value=2100, step=1)
 with col4:
-    st.write("")
+    st.write("")  # alinha verticalmente com os outros campos
     st.write("")
     calcular = st.button("Filtrar", type="primary", width='stretch')
 
-if not calcular:
+# Guarda o clique em session_state: sem isso, qualquer outro widget (ex.: o
+# toggle de destaque) dispara um rerun em que `calcular` volta a ser False,
+# e o st.stop() abaixo derrubaria gráficos e tabelas já filtrados.
+if calcular:
+    st.session_state.filtro_aplicado = True
+
+if not st.session_state.get("filtro_aplicado", False):
     st.stop()
 
 def _primeiro_ou_nan(serie):
@@ -890,22 +897,49 @@ tabela_titulos.columns = [
     "ISIN", "Vencimento", "Quantidade usada", "Quantidade total", "Taxa", "VP Curva", "VP Curva (Total)", "VP Ativo", "VP Ativo (Total)", "Valor Unitário curva", "Valor Unitário","Ajuste", "Ajuste (Total)"
 ]
 
+def vermelho_se_negativo(val):
+    """Retorna estilo vermelho se o valor for negativo."""
+    try:
+        return "color: #900; background-color: #ffe6e6; font-weight: bold;" if val < 0 else ""
+    except (ValueError, TypeError):
+        return ""
+
+destacar_negativos = st.toggle(
+    "Destacar ajustes negativos em vermelho",
+    value=True,
+    key="destacar_negativos_titulos",
+)
+
+def destacar_linha_ajuste_negativo(row):
+    """Aplica cor de fundo/texto na linha inteira se 'Ajuste' for negativo."""
+    if row["Ajuste"] < 0 or row["Ajuste (Total)"] < 0:
+        estilo = "color: #b34700; background-color: #ffe6b3; font-weight: bold;"
+    else:
+        estilo = ""
+    return [estilo] * len(row)
+
+titulos_styler = tabela_titulos.style.format({
+    "Valor Unitário": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Valor Unitário curva": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "VP Curva":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "VP Curva (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "VP Ativo":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "VP Ativo (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Ajuste":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Ajuste (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Taxa Curva":     lambda x: f"{x:.4%}".replace(".", ","),
+    "Quantidade usada":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Quantidade total": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Taxa": lambda x: f"{x:.3%}".replace(".", ","),
+    "Vencimento": lambda x: pd.to_datetime(x).strftime("%d/%m/%Y") if pd.notna(x) else "",
+})
+
+if destacar_negativos:
+    #titulos_styler = titulos_styler.map(vermelho_se_negativo, subset=["Ajuste", "Ajuste (Total)"])
+    titulos_styler = titulos_styler.apply(destacar_linha_ajuste_negativo, axis=1)
+
 st.dataframe(
-    tabela_titulos.style.format({
-        "Valor Unitário": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Valor Unitário curva": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "VP Curva":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "VP Curva (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "VP Ativo":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "VP Ativo (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Ajuste":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Ajuste (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Taxa Curva":     lambda x: f"{x:.4%}".replace(".", ","),
-        "Quantidade usada":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Quantidade total": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Taxa": lambda x: f"{x:.3%}".replace(".", ","),
-        "Vencimento": lambda x: pd.to_datetime(x).strftime("%d/%m/%Y") if pd.notna(x) else "",
-    }),
+    titulos_styler,
     width='stretch',
     hide_index=True,
 )
