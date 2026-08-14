@@ -881,9 +881,11 @@ tabela_titulos = (
 
 tabela_titulos["Valor unitário curva"] = tabela_titulos["vp_curva"] / tabela_titulos["quantidade"]
 tabela_titulos["Valor unitário"] = tabela_titulos["vp_ativo"] / tabela_titulos["quantidade"]
+tabela_titulos["Ajuste"] = tabela_titulos["vp_ativo"] - tabela_titulos["vp_curva"]
+tabela_titulos["Ajuste (Total)"] = tabela_titulos["vp_ativo_total"] - tabela_titulos["vp_curva_total"]
 
 tabela_titulos.columns = [
-    "ISIN", "Quantidade usada", "Quantidade total", "Taxa", "VP Curva", "VP Curva (Total)", "VP Ativo", "VP Ativo (Total)", "Valor Unitário curva", "Valor Unitário"
+    "ISIN", "Quantidade usada", "Quantidade total", "Taxa", "VP Curva", "VP Curva (Total)", "VP Ativo", "VP Ativo (Total)", "Valor Unitário curva", "Valor Unitário","Ajuste", "Ajuste (Total)"
 ]
 
 st.dataframe(
@@ -894,6 +896,8 @@ st.dataframe(
         "VP Curva (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
         "VP Ativo":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
         "VP Ativo (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Ajuste":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Ajuste (Total)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
         "Taxa Curva":     lambda x: f"{x:.4%}".replace(".", ","),
         "Quantidade usada":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
         "Quantidade total": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
