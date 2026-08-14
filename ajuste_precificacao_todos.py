@@ -89,22 +89,6 @@ def calcular_precificacao(fluxo, mapa, passivo, contas, dias_uteis):
     contas = contas.copy()
     dias_uteis = dias_uteis.copy()
 
-    # Normalização: garantir número/plano como string e sem espaços/`.0`
-    def _norm_plano(col):
-        if col.name not in (None, ''):
-            return (
-                col.fillna("")
-                   .astype(str)
-                   .str.strip()
-                   .str.replace(r"\.0$", "", regex=True)
-            )
-        return col
-
-    if 'numero_plano' in mapa.columns:
-        mapa['numero_plano'] = _norm_plano(mapa['numero_plano'])
-    if 'numero_plano' in passivo.columns:
-        passivo['numero_plano'] = _norm_plano(passivo['numero_plano'])
-
     fluxo["data_pgto"] = pd.to_datetime(fluxo["data_pgto"])
     dias_uteis["data"] = pd.to_datetime(dias_uteis["data"])
     dias_uteis = dias_uteis.sort_values("data").reset_index(drop=True)
@@ -445,13 +429,7 @@ df = calc_result['df']
 
 def gerar_resumo_todos_planos(mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, duracao_passivo, taxas_plano):
     """Gera um resumo consolidado com todos os planos."""
-    # Incluir planos presentes no mapa ou no passivo (evita omitir planos sem mapeamento)
-    def _to_str_set(s):
-        return set(s.dropna().astype(str).str.strip().tolist())
-
-    planos_mapa = _to_str_set(mapa["numero_plano"]) if "numero_plano" in mapa.columns else set()
-    planos_passivo = _to_str_set(passivo["numero_plano"]) if "numero_plano" in passivo.columns else set()
-    planos_lista = sorted(planos_mapa | planos_passivo)
+    planos_lista = sorted(mapa["numero_plano"].dropna().unique())
     resumo_data = []
 
     for num_plano in planos_lista:
@@ -502,209 +480,15 @@ def gerar_resumo_todos_planos(mapa, passivo, vp_ativo, vp_ativo_total, vp_curva,
 
     return pd.DataFrame(resumo_data)
 
-# Gerar resumo sempre (evita usar versão em cache que pode estar desatualizada no deploy)
-df_resumo_todos = gerar_resumo_todos_planos(
-    mapa, passivo, vp_ativo, vp_ativo_total, vp_curva,
-    duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total,
-    duracao_passivo, taxas_plano
-)
+# Gerar resumo apenas uma vez (use session_state para evitar recálculo)
+if 'df_resumo_todos' not in st.session_state:
+    st.session_state.df_resumo_todos = gerar_resumo_todos_planos(
+        mapa, passivo, vp_ativo, vp_ativo_total, vp_curva, 
+        duracao_ativo, duracao_ativo_anos, duracao_ativo_total, duracao_ativo_anos_total, 
+        duracao_passivo, taxas_plano
+    )
 
-# Mostrar contagens para diagnóstico (compare local vs deploy)
-st.write(f"Resumo gerado — linhas: {len(df_resumo_todos)}; planos únicos no resumo: {df_resumo_todos['Plano'].nunique() if not df_resumo_todos.empty else 0}")
-
-# Diagnóstico opcional: mostrar planos que existem no mapa mas não têm VP Ativo
-with st.expander("🔍 Diagnóstico: planos sem VP Ativo (opcional)"):
-    if st.button("Gerar diagnóstico de planos ausentes", key="diag_planos"):
-        planos_mapa = sorted(mapa["numero_plano"].dropna().astype(str).str.strip().unique()) if "numero_plano" in mapa.columns else []
-        planos_vp_ativo = sorted(vp_ativo["numero_plano"].dropna().astype(str).str.strip().unique()) if "numero_plano" in vp_ativo.columns else []
-        planos_passivo = sorted(passivo["numero_plano"].dropna().astype(str).str.strip().unique()) if "numero_plano" in passivo.columns else []
-
-        faltam_vp = sorted(set(planos_mapa) - set(planos_vp_ativo))
-        faltam_mapa = sorted(set(planos_passivo) - set(planos_mapa))
-
-        df_faltam = pd.DataFrame({
-            "plano": planos_mapa,
-            "vp_ativo_sum": [vp_ativo.loc[vp_ativo["numero_plano"].astype(str).str.strip() == p, "vp_ativo"].sum() if "numero_plano" in vp_ativo.columns else 0 for p in planos_mapa],
-            "vp_passivo_sum": [passivo.loc[passivo["numero_plano"].astype(str).str.strip() == p, "vp_passivo"].sum() if "numero_plano" in passivo.columns else 0 for p in planos_mapa],
-        })
-
-        st.write(f"Planos no mapa: {len(planos_mapa)} — com VP Ativo: {len(planos_vp_ativo)} — em passivo: {len(planos_passivo)}")
-        st.write("Planos do mapa sem VP Ativo (ex.: aparecem no resumo local, mas sem ativos calculados):")
-        st.dataframe(pd.DataFrame({"planos_mapa_sem_vp_ativo": faltam_vp}))
-        if faltam_mapa:
-            st.write("Planos presentes no passivo mas ausentes do mapa:")
-            st.dataframe(pd.DataFrame({"planos_passivo_sem_mapa": faltam_mapa}))
-        st.write("Visão detalhada (soma VP Ativo / VP Passivo por plano):")
-        st.dataframe(df_faltam)
-
-# Diagnóstico de ambiente e parser (versions + tentativa de leitura com engines diferentes)
-with st.expander("🔧 Diagnóstico de ambiente e parser (Excel)"):
-    if st.button("Gerar diagnóstico de parser/ambiente", key="diag_parser"):
-        import sys, importlib, json
-
-        def _ver(m):
-            try:
-                mod = importlib.import_module(m)
-                return getattr(mod, "__version__", str(mod))
-            except Exception as e:
-                return f"erro: {e}"
-
-        report = {}
-        report['versions'] = {
-            'python': sys.version.splitlines()[0],
-            'pandas': _ver('pandas'),
-            'numpy': _ver('numpy'),
-            'openpyxl': _ver('openpyxl'),
-            'xlrd': _ver('xlrd'),
-            'pyxlsb': _ver('pyxlsb'),
-        }
-
-        # ler bytes do upload (voltar para início)
-        try:
-            uploaded.seek(0)
-        except Exception:
-            pass
-        try:
-            excel_bytes = uploaded.read()
-        except Exception as e:
-            st.error(f"Não foi possível ler o arquivo enviado: {e}")
-            excel_bytes = None
-
-        reads = []
-        if excel_bytes is not None:
-            buf = io.BytesIO(excel_bytes)
-            for engine in [None, 'openpyxl', 'xlrd']:
-                try:
-                    buf.seek(0)
-                    if engine is None:
-                        df_read = pd.read_excel(buf, sheet_name='Titulos')
-                        engine_name = 'pandas-default'
-                    else:
-                        df_read = pd.read_excel(buf, sheet_name='Titulos', engine=engine)
-                        engine_name = engine
-
-                    reads.append({
-                        'engine': engine_name,
-                        'shape': df_read.shape,
-                        'columns': df_read.columns.tolist(),
-                        'dtypes': {c: str(t) for c, t in df_read.dtypes.items()},
-                        'n_null_numero_plano': int(df_read['numero_plano'].isna().sum()) if 'numero_plano' in df_read.columns else None,
-                        'n_null_vp_ativo': int(df_read['vp_ativo'].isna().sum()) if 'vp_ativo' in df_read.columns else None,
-                        'head_5': df_read.head(5).to_dict(orient='records'),
-                    })
-                except Exception as e:
-                    reads.append({'engine': engine or 'pandas-default', 'error': str(e)})
-        else:
-            reads.append({'error': 'arquivo não disponível para leitura'})
-
-        report['reads'] = reads
-
-        st.write("**Versões detectadas:**")
-        st.json(report['versions'])
-        st.write("**Tentativas de leitura (resumo):**")
-        for r in reads:
-            st.write(r)
-
-        # disponibilizar download do relatório
-        report_json = json.dumps(report, ensure_ascii=False, indent=2)
-        st.download_button(
-            label="📥 Baixar relatório de diagnóstico (JSON)",
-            data=report_json,
-            file_name=f"diagnostico_parser_{DATA_BASE.date()}.json",
-            mime="application/json",
-        )
-
-# Diagnóstico detalhado por plano (raw vs usado)
-with st.expander("🔎 Diagnóstico por plano: títulos brutos vs usados"):
-    if st.button("Gerar diagnóstico por plano", key="diag_planos_detalhado"):
-        try:
-            uploaded.seek(0)
-        except Exception:
-            pass
-        try:
-            excel_bytes = uploaded.read()
-            buf1 = io.BytesIO(excel_bytes)
-            buf2 = io.BytesIO(excel_bytes)
-            raw_fluxo = pd.read_excel(buf1, sheet_name='Titulos')
-            raw_mapa = pd.read_excel(buf2, sheet_name='titulos_plano')
-        except Exception as e:
-            st.error(f"Erro ao ler abas brutas: {e}")
-            raw_fluxo = pd.DataFrame()
-            raw_mapa = pd.DataFrame()
-
-        # normalizar chaves
-        if 'ISIN' in raw_fluxo.columns:
-            raw_fluxo['ISIN'] = raw_fluxo['ISIN'].astype(str).str.strip()
-        if 'ISIN' in raw_mapa.columns:
-            raw_mapa['ISIN'] = raw_mapa['ISIN'].astype(str).str.strip()
-        if 'numero_plano' in raw_mapa.columns:
-            raw_mapa['numero_plano'] = raw_mapa['numero_plano'].astype(str).str.strip()
-
-        # merge bruto para contar títulos por plano no arquivo
-        if not raw_fluxo.empty and not raw_mapa.empty:
-            merge_raw = raw_fluxo.merge(raw_mapa[['ISIN','numero_plano']], on='ISIN', how='left')
-        else:
-            merge_raw = pd.DataFrame()
-
-        planos = sorted(set(list(mapa['numero_plano'].dropna().astype(str).str.strip().unique()) + list(passivo['numero_plano'].dropna().astype(str).str.strip().unique())))
-
-        rows = []
-        for p in planos:
-            vp_sum = float(vp_ativo.loc[vp_ativo['numero_plano'].astype(str).str.strip() == p, 'vp_ativo'].sum()) if 'numero_plano' in vp_ativo.columns else 0.0
-            n_raw = int(merge_raw[merge_raw['numero_plano'].astype(str).str.strip() == p].shape[0]) if not merge_raw.empty else 0
-            n_used = int(df[df['numero_plano'].astype(str).str.strip() == p].shape[0]) if 'numero_plano' in df.columns else 0
-            in_mapa = p in set(mapa['numero_plano'].dropna().astype(str).str.strip().unique())
-            in_passivo = p in set(passivo['numero_plano'].dropna().astype(str).str.strip().unique())
-            probable_reason = None
-            if vp_sum == 0:
-                if n_raw == 0 and in_passivo and not in_mapa:
-                    probable_reason = 'Plano presente no passivo, sem títulos no mapa'
-                elif n_raw > 0 and n_used == 0:
-                    probable_reason = 'Títulos presentes no arquivo, mas foram filtrados (p.ex. prazo_du <= 0 ou data não mapeada)'
-                elif n_raw == 0 and in_mapa:
-                    probable_reason = 'Plano no mapa, mas sem títulos correspondentes no arquivo Titulos'
-                else:
-                    probable_reason = 'VP Ativo zero — investigar entradas'
-
-            rows.append({
-                'plano': p,
-                'vp_ativo_sum': vp_sum,
-                'n_titulos_raw': n_raw,
-                'n_titulos_usados': n_used,
-                'in_mapa': in_mapa,
-                'in_passivo': in_passivo,
-                'provavel_motivo': probable_reason,
-            })
-
-        df_diag = pd.DataFrame(rows)
-        df_missing = df_diag[df_diag['vp_ativo_sum'] == 0].sort_values(['in_passivo','n_titulos_raw'], ascending=[False,False])
-        st.write(f"Planos totais analisados: {len(df_diag)} — planos com VP Ativo = 0: {len(df_missing)}")
-        st.dataframe(df_missing)
-
-        csv_bytes = df_missing.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label='📥 Baixar planos com VP_Ativo=0 (CSV)',
-            data=csv_bytes,
-            file_name=f'planos_sem_vp_ativo_{DATA_BASE.date()}.csv',
-            mime='text/csv',
-        )
-
-        # Expander para inspecionar linhas do `df` para planos problemáticos
-        with st.expander("🔬 Inspecionar entradas do df para planos com VP_Ativo=0"):
-            planos_problem = df_missing['plano'].astype(str).tolist()
-            if planos_problem:
-                sel = st.selectbox("Escolha um plano para inspecionar", planos_problem)
-                # mostrar primeiras linhas do df processado para esse plano
-                if 'numero_plano' in df.columns:
-                    df_sel = df[df['numero_plano'].astype(str).str.strip() == str(sel)].copy()
-                    if not df_sel.empty:
-                        cols_show = [c for c in ['ISIN','quantidade','qtde_total','valor','fluxo','taxa_diaria','taxa_dia','prazo_du','vp_ativo','vp_ativo_total'] if c in df_sel.columns]
-                        st.write(f"Mostrando {min(200, len(df_sel))} linhas do df para o plano {sel}:")
-                        st.dataframe(df_sel[cols_show].head(200))
-                    else:
-                        st.write("Nenhuma linha encontrada no df processado para esse plano.")
-            else:
-                st.write("Nenhum plano com VP_Ativo=0 encontrado para inspecionar.")
+df_resumo_todos = st.session_state.df_resumo_todos
 
 # Download: Resumo de todos os planos
 st.subheader("📊 Resumo Macro - Todos os Planos")
