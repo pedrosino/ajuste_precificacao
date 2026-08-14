@@ -873,11 +873,13 @@ titulos_plano = df[titulos_filtro].copy()
 
 tabela_titulos = (
     titulos_plano
-    .groupby(["ISIN", "quantidade", "qtde_total", "taxa"])[["vp_curva", "vp_curva_total", 
+    .groupby(["ISIN", "vencimento", "quantidade", "qtde_total", "taxa"])[["vp_curva", "vp_curva_total", 
                                               "vp_ativo", "vp_ativo_total"]]
     .sum()
     .reset_index()
 )
+
+tabela_titulos.sort_values(by=["vencimento","taxa","quantidade"], inplace=True)
 
 tabela_titulos["Valor unitário curva"] = tabela_titulos["vp_curva"] / tabela_titulos["quantidade"]
 tabela_titulos["Valor unitário"] = tabela_titulos["vp_ativo"] / tabela_titulos["quantidade"]
@@ -885,7 +887,7 @@ tabela_titulos["Ajuste"] = tabela_titulos["vp_ativo"] - tabela_titulos["vp_curva
 tabela_titulos["Ajuste (Total)"] = tabela_titulos["vp_ativo_total"] - tabela_titulos["vp_curva_total"]
 
 tabela_titulos.columns = [
-    "ISIN", "Quantidade usada", "Quantidade total", "Taxa", "VP Curva", "VP Curva (Total)", "VP Ativo", "VP Ativo (Total)", "Valor Unitário curva", "Valor Unitário","Ajuste", "Ajuste (Total)"
+    "ISIN", "Vencimento", "Quantidade usada", "Quantidade total", "Taxa", "VP Curva", "VP Curva (Total)", "VP Ativo", "VP Ativo (Total)", "Valor Unitário curva", "Valor Unitário","Ajuste", "Ajuste (Total)"
 ]
 
 st.dataframe(
@@ -902,6 +904,7 @@ st.dataframe(
         "Quantidade usada":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
         "Quantidade total": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
         "Taxa": lambda x: f"{x:.3%}".replace(".", ","),
+        "Vencimento": lambda x: pd.to_datetime(x).strftime("%d/%m/%Y") if pd.notna(x) else "",
     }),
     width='stretch',
     hide_index=True,
