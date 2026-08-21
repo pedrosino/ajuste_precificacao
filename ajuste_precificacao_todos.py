@@ -974,6 +974,7 @@ st.dataframe(
     ),
     width='stretch',
     hide_index=True,
+    height=555,
 )
 
 # ── Títulos ───────────────────────────────────────────────────────────────────
@@ -1109,6 +1110,7 @@ st.dataframe(
     titulos_styler,
     width='stretch',
     hide_index=True,
+    height=555,
 )
 
 # ── Download ───────────────────────────────────────────────────────────────────
