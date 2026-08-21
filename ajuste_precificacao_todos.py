@@ -765,7 +765,7 @@ vp_passivo_total = passivo_plano['vp_passivo'].sum()
 
 # Primeira linha - dados do passivo
 c11, c12, c13 = st.columns(3) #, c3 = st.columns(3)
-c11.markdown(kpi_card("VP Passivo", moeda_br(vp_passivo_total)), unsafe_allow_html=True)
+c11.markdown(kpi_card("Valor presente Passivo", moeda_br(vp_passivo_total)), unsafe_allow_html=True)
 c12.markdown(kpi_card("Taxa atuarial", perc_br(taxa_plano*100)), unsafe_allow_html=True)
 c13.markdown(kpi_card("Duração do passivo (anos)", f"{formatar_numero(duracao_passivo_plano, 4)} anos"), unsafe_allow_html=True)
 
@@ -783,75 +783,37 @@ alerta_duracao_carteira = (
 )
 
 # Segunda linha - Valor presente com taxa atuarial
-c20, c21, c22 = st.columns(3)
-c20.markdown("**Item**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-c20.markdown(kpi_card("","Valor presente (taxa atuarial)"), unsafe_allow_html=True)
+c21, c22, c23 = st.columns(3)
+#c20.markdown("**Item**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
+#c20.markdown(kpi_card("","Valor presente (taxa atuarial)"), unsafe_allow_html=True)
 c21.markdown("**DPAP**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-c21.markdown(kpi_card("", moeda_br(vp_ativo_plano)), unsafe_allow_html=True)
+c21.markdown(kpi_card("Valor presente (taxa atuarial)", moeda_br(vp_ativo_plano)), unsafe_allow_html=True)
 c22.markdown("**Carteira**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
 c22.markdown(kpi_card("Valor presente (taxa atuarial)", moeda_br(vp_ativo_plano_carteira)), unsafe_allow_html=True)
 
 # Terceira linha - valor presente com taxa do título
-c30, c31, c32 = st.columns(3)
-c30.markdown(kpi_card("","Valor presente (taxa título)"), unsafe_allow_html=True)
-c31.markdown(kpi_card("", moeda_br(vp_curva_plano)), unsafe_allow_html=True)
+c31, c32, c33 = st.columns(3)
+#c30.markdown(kpi_card("","Valor presente (taxa título)"), unsafe_allow_html=True)
+c31.markdown(kpi_card("Valor presente (taxa título)", moeda_br(vp_curva_plano)), unsafe_allow_html=True)
 c32.markdown(kpi_card("Valor presente (taxa título)", moeda_br(vp_curva_plano_carteira)), unsafe_allow_html=True)
 
 # Quarta linha - Ajuste de precificação
-c40, c41, c42 = st.columns(3)
-c40.markdown(kpi_card("","Ajuste de precificação"), unsafe_allow_html=True)
-c41.markdown(kpi_card("", moeda_br(ajuste_plano), (ajuste_plano/vp_passivo_total*100) if vp_passivo_total else None), unsafe_allow_html=True)
+c41, c42, c43 = st.columns(3)
+#c40.markdown(kpi_card("","Ajuste de precificação"), unsafe_allow_html=True)
+c41.markdown(kpi_card("Ajuste de precificação", moeda_br(ajuste_plano), (ajuste_plano/vp_passivo_total*100) if vp_passivo_total else None), unsafe_allow_html=True)
 c42.markdown(kpi_card("Ajuste de precificação", moeda_br(ajuste_plano_carteira), (ajuste_plano_carteira/vp_passivo_total*100) if vp_passivo_total else None), unsafe_allow_html=True)
 
 # Quinta linha - Duração do ativo (anos)
-c50, c51, c52 = st.columns(3)
-c50.markdown(kpi_card("","Duração do ativo (anos)"), unsafe_allow_html=True)
-c51.markdown(kpi_card("", f"{formatar_numero(duracao_ativo_anos, 4)} anos", alerta=alerta_duracao), unsafe_allow_html=True)
+c51, c52, c53 = st.columns(3)
+#c50.markdown(kpi_card("","Duração do ativo (anos)"), unsafe_allow_html=True)
+c51.markdown(kpi_card("Duração do ativo (anos)", f"{formatar_numero(duracao_ativo_anos, 4)} anos", alerta=alerta_duracao), unsafe_allow_html=True)
 c52.markdown(kpi_card("Duração do ativo (anos)", f"{formatar_numero(duracao_ativo_carteira_anos, 4)} anos", alerta=alerta_duracao_carteira), unsafe_allow_html=True)
 
 # Sexta linha - Duração do ativo (dias)
-c60, c61, c62 = st.columns(3)
-c60.markdown(kpi_card("","Duração do ativo (dias)"), unsafe_allow_html=True)
-c61.markdown(kpi_card("", f"{formatar_numero(duracao_ativo, 2)} dias ({formatar_numero(duracao_ativo/252, 4)} anos)", alerta=alerta_duracao), unsafe_allow_html=True)
+c61, c62, c63 = st.columns(3)
+#c60.markdown(kpi_card("","Duração do ativo (dias)"), unsafe_allow_html=True)
+c61.markdown(kpi_card("Duração do ativo (dias)", f"{formatar_numero(duracao_ativo, 2)} dias ({formatar_numero(duracao_ativo/252, 4)} anos)", alerta=alerta_duracao), unsafe_allow_html=True)
 c62.markdown(kpi_card("Duração do ativo (dias)", f"{formatar_numero(duracao_ativo_carteira, 2)} dias ({formatar_numero(duracao_ativo_carteira/252, 4)} anos)", alerta=alerta_duracao_carteira), unsafe_allow_html=True)
-
-
-# Outro formato
-st.divider()
-
-# Primeira linha - dados do passivo
-d11, d12, d13 = st.columns(3) #, c3 = st.columns(3)
-d11.markdown(kpi_card("VP Passivo", moeda_br(vp_passivo_total)), unsafe_allow_html=True)
-d12.markdown(kpi_card("Taxa atuarial", perc_br(taxa_plano*100)), unsafe_allow_html=True)
-d13.markdown(kpi_card("Duração do passivo (anos)", f"{formatar_numero(duracao_passivo_plano, 4)} anos"), unsafe_allow_html=True)
-
-st.divider()
-# Segunda linha - Valor presente com taxa atuarial
-a0, a1, a2, a3, a4, a5 = st.columns(6)
-a0.markdown("**Fonte**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-a0.markdown("##### DPAP")
-
-#a1.subheader("Valor presente (taxa atuarial)", divider="gray")
-a1.markdown("**Valor presente (taxa atuarial)**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-#a1.markdown(kpi_card("VP Ativo (taxa atuarial)", moeda_br(vp_ativo_plano)), unsafe_allow_html=True)
-a1.markdown(kpi_card("", moeda_br(vp_ativo_plano)), unsafe_allow_html=True)
-a2.markdown("**Valor presente (taxa título)**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-a2.markdown(kpi_card("", moeda_br(vp_curva_plano)), unsafe_allow_html=True)
-a3.markdown("**Ajuste de precificação**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-a3.markdown(kpi_card("", moeda_br(ajuste_plano), (ajuste_plano/vp_passivo_total*100) if vp_passivo_total else None), unsafe_allow_html=True)
-a4.markdown("**Duração do ativo (anos)**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-a4.markdown(kpi_card("", f"{formatar_numero(duracao_ativo_anos, 4)} anos", alerta=alerta_duracao), unsafe_allow_html=True)
-a5.markdown("**Duração do ativo (dias)**<hr style='margin: 0px 0px;'>", unsafe_allow_html=True)
-a5.markdown(kpi_card("", f"{formatar_numero(duracao_ativo, 2)} dias ({formatar_numero(duracao_ativo/252, 4)} anos)", alerta=alerta_duracao), unsafe_allow_html=True)
-
-# Terceira linha - valor presente com taxa do título
-b0, b1, b2, b3, b4, b5 = st.columns(6)
-b0.markdown("##### Carteira")
-b1.markdown(kpi_card("", moeda_br(vp_ativo_plano_carteira)), unsafe_allow_html=True)
-b2.markdown(kpi_card("", moeda_br(vp_curva_plano_carteira)), unsafe_allow_html=True)
-b3.markdown(kpi_card("", moeda_br(ajuste_plano_carteira), (ajuste_plano_carteira/vp_passivo_total*100) if vp_passivo_total else None), unsafe_allow_html=True)
-b4.markdown(kpi_card("", f"{formatar_numero(duracao_ativo_carteira_anos, 4)} anos", alerta=alerta_duracao_carteira), unsafe_allow_html=True)
-b5.markdown(kpi_card("", f"{formatar_numero(duracao_ativo_carteira, 2)} dias ({formatar_numero(duracao_ativo_carteira/252, 4)} anos)", alerta=alerta_duracao_carteira), unsafe_allow_html=True)
 
 st.divider()
 
@@ -862,6 +824,7 @@ st.subheader("VP Acumulado — Ativo vs. Passivo")
 linha_passivo = resultado_plano["acumulado_passivo"]
 linha_ativo = resultado_plano["acumulado_ativo"]
 linha_carteira = resultado_plano_carteira["acumulado_ativo"]
+anos = resultado_plano["ano"]
 
 sombra_ativo = np.maximum(linha_ativo, linha_passivo)
 sombra_carteira = np.maximum(linha_carteira, linha_passivo)
@@ -886,11 +849,16 @@ sombra_carteira_lista = [None if np.isnan(v) else v for v in sombra_carteira]
 base_ativo_lista = [None if np.isnan(v) else v for v in base_passivo_ativo]
 base_carteira_lista = [None if np.isnan(v) else v for v in base_passivo_carteira]
 
+x_ativo = np.where(np.isnan(linha_ativo), np.nan, anos)
+x_carteira = np.where(np.isnan(linha_carteira), np.nan, anos)
+uniao = np.union1d(x_ativo, x_carteira)
+eixo_x = uniao[~np.isnan(uniao)].tolist()
+
 fig = go.Figure()
 
 # Linha base
 fig.add_trace(go.Scatter(
-    x=resultado_plano["ano"],
+    x=eixo_x,#resultado_plano["ano"],
     y=base_ativo_lista,
     mode="lines",
     line=dict(color="rgba(0,0,0,0)"), showlegend=False, hoverinfo="skip"
@@ -898,7 +866,7 @@ fig.add_trace(go.Scatter(
 
 # Primeira sombra
 fig.add_trace(go.Scatter(
-    x=resultado_plano["ano"],
+    x=eixo_x,#resultado_plano["ano"],
     y=sombra_ativo_lista,
     customdata=excesso_ativo,
     hovertemplate="%{customdata:,.0f}",
@@ -911,7 +879,7 @@ fig.add_trace(go.Scatter(
 
 # Repete linha base
 fig.add_trace(go.Scatter(
-    x=resultado_plano["ano"],
+    x=eixo_x,#resultado_plano["ano"],
     y=base_carteira_lista,
     mode="lines",
     line=dict(color="rgba(0,0,0,0)"), showlegend=False, hoverinfo="skip"
@@ -919,7 +887,7 @@ fig.add_trace(go.Scatter(
 
 # Segunda sombra
 fig.add_trace(go.Scatter(
-    x=resultado_plano["ano"],
+    x=eixo_x,#resultado_plano["ano"],
     y=sombra_carteira_lista,
     customdata=excesso_carteira,
     hovertemplate="%{customdata:,.0f}",
@@ -932,7 +900,7 @@ fig.add_trace(go.Scatter(
 
 # Agora as linhas de verdade
 fig.add_trace(go.Scatter(
-    x=resultado_plano["ano"],
+    x=eixo_x,#resultado_plano["ano"],
     y=resultado_plano["acumulado_ativo"],
     name="VP Ativo acumulado",
     mode="lines+markers",
@@ -941,7 +909,7 @@ fig.add_trace(go.Scatter(
 ))
 
 fig.add_trace(go.Scatter(
-    x=resultado_plano["ano"],
+    x=eixo_x,#resultado_plano["ano"],
     y=resultado_plano["acumulado_passivo"],
     name="VP Passivo acumulado",
     mode="lines+markers",
@@ -950,11 +918,11 @@ fig.add_trace(go.Scatter(
 ))
 
 fig.add_trace(go.Scatter(
-    x=resultado_plano_carteira["ano"],
+    x=eixo_x,#resultado_plano_carteira["ano"],
     y=resultado_plano_carteira["acumulado_ativo"],
     name="VP Ativo acumulado (Carteira)",
     mode="lines+markers",
-    line=dict(color="#1B775A", width=2),
+    line=dict(color="#1B775A", width=2, dash="dot"),
     marker=dict(size=6),
 ))
 
