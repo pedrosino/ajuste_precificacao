@@ -8,6 +8,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+# Id da planilha Google
+SHEET_ID = "16piO6vTax9hCPA-pRWPpQCK45S1Cpy6-"
+
 # Função para formatar os números
 def moeda_br(x):
     """Substitui ponto por vírgula e vice-versa"""
@@ -42,16 +45,33 @@ st.title("📊 Ajuste de Precificação")
 st.caption("Cálculo do valor presente do ativo e passivo do plano de benefícios")
 
 # ─────────────────────────────────────────────
+# 0. Barra lateral
+# ─────────────────────────────────────────────
+
+st.sidebar.title("Fonte de dados")
+
+st.sidebar.markdown("Os dados serão carregados automaticamente. Caso queira usar dados personalizados, ative a opção de upload abaixo.")
+
+modo = st.sidebar.toggle(
+    "Upload de planilha",
+    value=False,
+    key="upload"
+)
+
+# ─────────────────────────────────────────────
 # 1. UPLOAD
 # ─────────────────────────────────────────────
 
-uploaded = st.file_uploader(
+uploaded = None
+
+if modo:
+    uploaded = st.file_uploader(
     "Selecione o arquivo Excel",
     type=["xlsx", "xls"],
     help="Arquivo com as abas: Titulos, titulos_plano, titulos_carteira, Passivo, contas, dias_uteis",
 )
 
-if not uploaded:
+if modo and not uploaded:
     st.info("Carregue o arquivo para começar.")
     st.stop()
 
@@ -71,8 +91,25 @@ def load_workbook(file_bytes: bytes):
     dias_uteis = pd.read_excel(buf, sheet_name="dias_uteis", header=None, names=["data"])
     return fluxo, mapa, carteira, passivo, contas, dias_uteis
 
+# Função para ler a planilha do Google Sheets
+@st.cache_data(show_spinner="Lendo dados de entrada...")
+def load_google_sheet(sheet_id):
+    """Lê as abas da planilha Google e retorna os DataFrames."""
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet="
+    fluxo      = pd.read_csv(f"{url}Titulos", decimal=",", thousands=".")
+    mapa       = pd.read_csv(f"{url}titulos_plano", decimal=",", thousands=".")
+    carteira   = pd.read_csv(f"{url}titulos_carteira", decimal=",", thousands=".")
+    passivo    = pd.read_csv(f"{url}Passivo", decimal=",", thousands=".")
+    contas     = pd.read_csv(f"{url}contas", decimal=",", thousands=".")
+    dias_uteis = pd.read_csv(f"{url}dias_uteis", header=None, names=['data'], decimal=",", thousands=".")
+    return fluxo, mapa, carteira, passivo, contas, dias_uteis
+
 try:
-    fluxo, mapa, carteira, passivo, contas, dias_uteis = load_workbook(uploaded.read())
+    if modo and uploaded:
+        fluxo, mapa, carteira, passivo, contas, dias_uteis = load_workbook(uploaded.read())
+    else:
+        fluxo, mapa, carteira, passivo, contas, dias_uteis = load_google_sheet(SHEET_ID)
+
 except Exception as e:
     st.error(f"Erro ao ler o arquivo: {e}")
     st.stop()
@@ -852,7 +889,8 @@ base_carteira_lista = [None if np.isnan(v) else v for v in base_passivo_carteira
 x_ativo = np.where(np.isnan(linha_ativo), np.nan, anos)
 x_carteira = np.where(np.isnan(linha_carteira), np.nan, anos)
 uniao = np.union1d(x_ativo, x_carteira)
-eixo_x = uniao[~np.isnan(uniao)].tolist()
+#eixo_x = uniao[~np.isnan(uniao)].tolist()
+eixo_x = anos
 
 fig = go.Figure()
 
