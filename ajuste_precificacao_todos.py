@@ -412,11 +412,14 @@ def calcular_precificacao(fluxo, mapa, carteira, passivo, contas, dias_uteis):
     vp_passivo = _vp_passivo_agg(['numero_plano', 'ano'])
     vp_passivo_grupo = _vp_passivo_agg(['numero_plano', 'grupo', 'ano'])
 
+    print(f"Passivo: {len(vp_passivo['ano'])}")
+    print(f"Ativo: {len(vp_ativo['ano'])}")
+
     # ── Merge resultado ────────────────────────────────────────────
     resultado = vp_passivo.merge(
         vp_ativo,
         on=["numero_plano","ano"],
-        how="left",
+        how="outer",
     )
     resultado["excesso_ativo"] = resultado["acumulado_ativo"] - resultado["acumulado_passivo"]
     resultado["flag_excesso"]  = resultado["acumulado_ativo"] > resultado["acumulado_passivo"]
@@ -424,7 +427,7 @@ def calcular_precificacao(fluxo, mapa, carteira, passivo, contas, dias_uteis):
     resultado_carteira = vp_passivo.merge(
         vp_ativo_carteira,
         on=["numero_plano", "ano"],
-        how="left"
+        how="outer"
     )
     resultado_carteira["excesso_ativo"] = resultado_carteira["acumulado_ativo"] - resultado_carteira["acumulado_passivo"]
     resultado_carteira["flag_excesso"] = resultado_carteira["acumulado_ativo"] > resultado_carteira["acumulado_passivo"]
@@ -512,6 +515,7 @@ passivo = calc_result['passivo']
 df = calc_result['df']
 df_carteira = calc_result['df_carteira']
 todos_planos = calc_result['todos_planos']
+
 
 # ─────────────────────────────────────────────
 # 3. RESUMO DE TODOS OS PLANOS
@@ -857,11 +861,18 @@ st.divider()
 # ── Gráfico ────────────────────────────────────────────────────────────────────
 st.subheader("VP Acumulado — Ativo vs. Passivo")
 
-# Novo
-linha_passivo = resultado_plano["acumulado_passivo"]
-linha_ativo = resultado_plano["acumulado_ativo"]
-linha_carteira = resultado_plano_carteira["acumulado_ativo"]
-anos = resultado_plano["ano"]
+anos = np.union1d(
+    resultado_plano["ano"].dropna().to_numpy(),
+    resultado_plano_carteira["ano"].dropna().to_numpy(),
+)
+
+def serie_por_ano(frame, coluna):
+    """Retorna uma série numérica alinhada ao eixo de anos do gráfico."""
+    return frame.set_index("ano")[coluna].reindex(anos).to_numpy(dtype=float)
+
+linha_passivo = serie_por_ano(resultado_plano, "acumulado_passivo")
+linha_ativo = serie_por_ano(resultado_plano, "acumulado_ativo")
+linha_carteira = serie_por_ano(resultado_plano_carteira, "acumulado_ativo")
 
 sombra_ativo = np.maximum(linha_ativo, linha_passivo)
 sombra_carteira = np.maximum(linha_carteira, linha_passivo)
@@ -872,7 +883,7 @@ excesso_carteira = np.maximum(0, linha_carteira - linha_passivo)
 # 2. Force the upper boundaries to be NaN wherever the original lines are NaN
 # (This ensures the upper boundary doesn't fall back to line_passivo values)
 sombra_ativo = np.where(np.isnan(linha_ativo), np.nan, sombra_ativo)
-sobra_carteira = np.where(np.isnan(linha_carteira), np.nan, sombra_carteira)
+sombra_carteira = np.where(np.isnan(linha_carteira), np.nan, sombra_carteira)
 
 # Truncar as linhas base
 base_passivo_ativo = np.where(np.isnan(linha_ativo), np.nan, linha_passivo)
@@ -886,10 +897,6 @@ sombra_carteira_lista = [None if np.isnan(v) else v for v in sombra_carteira]
 base_ativo_lista = [None if np.isnan(v) else v for v in base_passivo_ativo]
 base_carteira_lista = [None if np.isnan(v) else v for v in base_passivo_carteira]
 
-x_ativo = np.where(np.isnan(linha_ativo), np.nan, anos)
-x_carteira = np.where(np.isnan(linha_carteira), np.nan, anos)
-uniao = np.union1d(x_ativo, x_carteira)
-#eixo_x = uniao[~np.isnan(uniao)].tolist()
 eixo_x = anos
 
 fig = go.Figure()
@@ -939,7 +946,7 @@ fig.add_trace(go.Scatter(
 # Agora as linhas de verdade
 fig.add_trace(go.Scatter(
     x=eixo_x,#resultado_plano["ano"],
-    y=resultado_plano["acumulado_ativo"],
+    y=linha_ativo,
     name="VP Ativo acumulado",
     mode="lines+markers",
     line=dict(color="#378ADD", width=2),
@@ -948,7 +955,7 @@ fig.add_trace(go.Scatter(
 
 fig.add_trace(go.Scatter(
     x=eixo_x,#resultado_plano["ano"],
-    y=resultado_plano["acumulado_passivo"],
+    y=linha_passivo,
     name="VP Passivo acumulado",
     mode="lines+markers",
     line=dict(color="#D85A30", width=2, dash="dash"),
@@ -956,8 +963,8 @@ fig.add_trace(go.Scatter(
 ))
 
 fig.add_trace(go.Scatter(
-    x=eixo_x,#resultado_plano_carteira["ano"],
-    y=resultado_plano_carteira["acumulado_ativo"],
+    x=eixo_x,
+    y=linha_carteira,
     name="VP Ativo acumulado (Carteira)",
     mode="lines+markers",
     line=dict(color="#1B775A", width=2, dash="dot"),
