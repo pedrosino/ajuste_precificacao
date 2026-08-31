@@ -994,9 +994,9 @@ tabela = resultado_plano.merge(
 
 tabela.columns = [
     "Ano", 
-    "VP Passivo acum.",
-    "VP Ativo acum.", "Excesso acum.", "Ativo > Passivo",
-    "VP Ativo acum. (Carteira)", "Excesso acum. (Carteira)", "Ativo > Passivo (Carteira)",
+    "VP Passivo acumulado",
+    "VP Ativo acumulado", "Excesso acumulado", "Ativo > Passivo",
+    "VP Ativo acumulado (Carteira)", "Excesso acumulado (Carteira)", "Ativo > Passivo (Carteira)",
 ]
 
 st.dataframe(
@@ -1097,8 +1097,8 @@ tabela_titulos = tabela_titulos[[
     "Ajuste", "Ajuste (Carteira)"]]
 
 tabela_titulos.columns = [
-    "ISIN", "Vencimento", "Taxa", "Quantidade usada", "VP Curva", "VP Taxa Atuarial",
-    "Quantidade (Carteira)", "VP Curva (Carteira)", "VP Taxa Atuarial (Carteira)",
+    "ISIN", "Vencimento", "Taxa", "Qtde. usada", "VP Curva", "VP Taxa Atuarial",
+    "Qtde. (Carteira)", "VP Curva (Carteira)", "VP Taxa Atuarial (Carteira)",
     "PU curva", "PU Taxa Atuarial",
     "Ajuste", "Ajuste (Carteira)"
 ]
