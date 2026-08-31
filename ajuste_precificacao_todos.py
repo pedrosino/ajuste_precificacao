@@ -412,9 +412,6 @@ def calcular_precificacao(fluxo, mapa, carteira, passivo, contas, dias_uteis):
     vp_passivo = _vp_passivo_agg(['numero_plano', 'ano'])
     vp_passivo_grupo = _vp_passivo_agg(['numero_plano', 'grupo', 'ano'])
 
-    print(f"Passivo: {len(vp_passivo['ano'])}")
-    print(f"Ativo: {len(vp_ativo['ano'])}")
-
     # ── Merge resultado ────────────────────────────────────────────
     resultado = vp_passivo.merge(
         vp_ativo,
@@ -1100,13 +1097,9 @@ tabela_titulos = tabela_titulos[[
     "Ajuste", "Ajuste (Carteira)"]]
 
 tabela_titulos.columns = [
-    #"ISIN", "Vencimento", "Quantidade usada", "Quantidade Carteira",
-    #"Taxa", "VP Curva", "VP Curva (Carteira)",
-    #"VP Ativo", "VP Ativo (Carteira)",
-    #"Valor Unitário curva", "Valor Unitário","Ajuste", "Ajuste (Carteira)"
-    "ISIN", "Vencimento", "Taxa", "Quantidade usada", "VP Curva", "VP Ativo",
-    "Quantidade (Carteira)", "VP Curva (Carteira)", "VP Ativo (Carteira)",
-    "PU curva", "PU ativo",
+    "ISIN", "Vencimento", "Taxa", "Quantidade usada", "VP Curva", "VP Taxa Atuarial",
+    "Quantidade (Carteira)", "VP Curva (Carteira)", "VP Taxa Atuarial (Carteira)",
+    "PU curva", "PU Taxa Atuarial",
     "Ajuste", "Ajuste (Carteira)"
 ]
 
