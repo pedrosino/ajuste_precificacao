@@ -1002,12 +1002,12 @@ tabela.columns = [
 st.dataframe(
     tabela.style.format({
         "VP Ativo (ano)":    lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "VP Ativo acum.":    lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "VP Ativo acumulado":    lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
         "VP Passivo (ano)":  lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "VP Passivo acum.":  lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Excesso acum.":     lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "VP Ativo acum. (Carteira)":    lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        "Excesso acum. (Carteira)":     lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "VP Passivo acumulado":  lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Excesso acumulado":     lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "VP Ativo acumulado (Carteira)":    lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        "Excesso acumulado (Carteira)":     lambda x: f"{x:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."),
         ##"{:,.2f}", decimal=",", thousands="."
     }    ).map(
         lambda v: "color: #1D9E75; font-weight:600" if v is True
