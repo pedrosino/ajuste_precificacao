@@ -1125,17 +1125,17 @@ def destacar_linha_ajuste_negativo(row):
     return [estilo] * len(row)
 
 titulos_styler = tabela_titulos.style.format({
-    "PU ativo": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "PU Taxa Atuarial": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
     "PU curva": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
     "VP Curva":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
     "VP Curva (Carteira)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-    "VP Ativo":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-    "VP Ativo (Carteira)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "VP Taxa Atuarial":       lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "VP Taxa Atuarial (Carteira)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
     "Ajuste":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
     "Ajuste (Carteira)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
     "Taxa Curva":     lambda x: f"{x:.4%}".replace(".", ","),
-    "Quantidade usada":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-    "Quantidade (Carteira)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Qtde. usada":     lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+    "Qtde. (Carteira)": lambda x: f"{x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
     "Taxa": lambda x: f"{x:.3%}".replace(".", ","),
     "Vencimento": lambda x: pd.to_datetime(x).strftime("%d/%m/%Y") if pd.notna(x) else "",
 })
