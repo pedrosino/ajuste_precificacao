@@ -1080,9 +1080,13 @@ colunas_preencher = ["quantidade", "vp_curva", "vp_ativo",
                      "quantidade (Carteira)", "vp_curva (Carteira)", "vp_ativo (Carteira)"]
 tabela_conjunta[colunas_preencher] = tabela_conjunta[colunas_preencher].fillna(0)
 
-tabela_titulos.sort_values(by=["vencimento","taxa","quantidade"], inplace=True)
-tabela_titulos = tabela_conjunta.sort_values(by=["vencimento","taxa","quantidade"],
-                                             inplace=False) #inplace=True retorna None e modifica o original
+#tabela_titulos.sort_values(by=["vencimento","taxa","quantidade"], inplace=True)
+#tabela_titulos = tabela_conjunta.sort_values(
+#    by=["vencimento","taxa","quantidade"],
+#    inplace=False) #inplace=True retorna None e modifica o original
+
+# https://stackoverflow.com/questions/42964088/pandas-sort-dataframe-by-date-string-without-converting
+tabela_titulos = tabela_conjunta.iloc[pd.to_datetime(tabela_conjunta['vencimento']).argsort()]
 
 tabela_titulos["PU curva"] = tabela_titulos["vp_curva"] / tabela_titulos["quantidade"]
 tabela_titulos["PU ativo"] = tabela_titulos["vp_ativo"] / tabela_titulos["quantidade"]
