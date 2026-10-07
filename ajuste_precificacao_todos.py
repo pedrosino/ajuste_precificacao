@@ -1086,6 +1086,10 @@ tabela_conjunta[colunas_preencher] = tabela_conjunta[colunas_preencher].fillna(0
 #    inplace=False) #inplace=True retorna None e modifica o original
 
 # https://stackoverflow.com/questions/42964088/pandas-sort-dataframe-by-date-string-without-converting
+# Primeiro ordena por taxa
+
+tabela_titulos = tabela_conjunta.sort_values(by="taxa")
+# Depois pelo vencimento, convertendo para datetime para garantir a ordem correta
 tabela_titulos = tabela_conjunta.iloc[pd.to_datetime(tabela_conjunta['vencimento']).argsort()]
 
 tabela_titulos["PU curva"] = tabela_titulos["vp_curva"] / tabela_titulos["quantidade"]
