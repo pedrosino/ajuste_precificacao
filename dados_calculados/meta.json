@@ -1,0 +1,36 @@
+{
+  "gerado_em": "18/10/2026 21:20",
+  "ano_base": 2025,
+  "tabelas": [
+    "vp_curva",
+    "vp_curva_grupo",
+    "vp_curva_carteira",
+    "vp_ativo",
+    "vp_ativo_grupo",
+    "vp_ativo_carteira",
+    "vp_passivo",
+    "vp_passivo_grupo",
+    "resultado",
+    "resultado_carteira",
+    "resultado_grupo",
+    "duracao_ativo",
+    "duracao_ativo_anos",
+    "duracao_ativo_grupo",
+    "duracao_ativo_anos_grupo",
+    "duracao_ativo_carteira",
+    "duracao_ativo_carteira_anos",
+    "duracao_passivo",
+    "duracao_passivo_grupo",
+    "taxas_plano",
+    "taxas_grupo",
+    "passivo"
+  ],
+  "por_plano": [
+    "df",
+    "df_carteira"
+  ],
+  "entradas": [
+    "mapa",
+    "carteira"
+  ]
+}
