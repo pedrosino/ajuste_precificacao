@@ -299,6 +299,19 @@ def calcular_precificacao(fluxo, mapa, carteira, passivo, contas, dias_uteis):
             .reset_index()
         )
         group_keys = [k for k in keys if k != 'ano']
+        anos_finais = out.groupby(group_keys)['ano'].max().reset_index()
+        anos_grade = []
+        for linha in anos_finais.itertuples(index=False, name=None):
+            valores_grupo = linha[:-1]
+            ultimo_ano = linha[-1]
+            anos_grade.extend(
+                (*valores_grupo, ano)
+                for ano in range(ANO_BASE + 1, int(ultimo_ano) + 1)
+            )
+        grade = pd.DataFrame(anos_grade, columns=keys)
+        grade = pd.concat([grade, out[keys]], ignore_index=True).drop_duplicates()
+        out = grade.merge(out, on=keys, how='left')
+        out['vp_passivo'] = out['vp_passivo'].fillna(0)
         out['acumulado_passivo'] = (
             out
             .sort_values(keys, ascending=[True] * (len(keys) - 1) + [False])
