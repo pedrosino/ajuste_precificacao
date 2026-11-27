@@ -99,8 +99,17 @@ def calcular_upload(fluxo, mapa, carteira, passivo, contas, dias_uteis):
 
 # cache_resource devolve sempre o mesmo objeto (sem copiar a cada interação) e o
 # compartilha entre as sessões. É seguro porque o app não altera esses DataFrames.
-@st.cache_resource(show_spinner="Carregando resultados…")
-def carregar_pre_calculado():
+# `versao` (conteúdo do meta.json) faz parte da chave do cache: quando você roda
+# atualizar_dados.py e faz push, a versão muda e os caches antigos deixam de valer.
+# Sem isso, o app em execução continuaria servindo os dados antigos da memória.
+def versao_dos_dados():
+    try:
+        return (PASTA_DADOS / "meta.json").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
+@st.cache_resource(show_spinner="Carregando resultados…", max_entries=2)
+def carregar_pre_calculado(versao):
     """Lê os parquets gerados por atualizar_dados.py."""
     meta = json.loads((PASTA_DADOS / "meta.json").read_text(encoding="utf-8"))
     calc = {nome: pd.read_parquet(PASTA_DADOS / f"{nome}.parquet") for nome in meta["tabelas"]}
@@ -112,7 +121,7 @@ def carregar_pre_calculado():
 # df e df_carteira (fluxos por título) são as maiores tabelas e o app só as usa
 # filtradas pelo plano selecionado: lê-se do parquet apenas as linhas desse plano.
 @st.cache_data(show_spinner=False, max_entries=10)
-def ler_titulos_do_plano(nome, plano):
+def ler_titulos_do_plano(nome, plano, versao):
     return pd.read_parquet(PASTA_DADOS / f"{nome}.parquet", filters=[("numero_plano", "==", plano)])
 
 try:
@@ -120,7 +129,8 @@ try:
         fluxo, mapa, carteira, passivo, contas, dias_uteis = load_workbook(uploaded.read())
         calc_result, df_resumo_todos = calcular_upload(fluxo, mapa, carteira, passivo, contas, dias_uteis)
     else:
-        calc_result, df_resumo_todos, entradas, meta_dados = carregar_pre_calculado()
+        versao = versao_dos_dados()
+        calc_result, df_resumo_todos, entradas, meta_dados = carregar_pre_calculado(versao)
         mapa, carteira = entradas["mapa"], entradas["carteira"]  # usadas na tabela "Títulos do Plano"
         st.sidebar.caption(f"Resultados calculados em {meta_dados['gerado_em']}")
         if meta_dados["ano_base"] != ANO_BASE:
@@ -208,8 +218,8 @@ with col1:
     plano = st.selectbox("Plano", planos)
 
 if df is None:  # modo pré-calculado: carrega só as linhas do plano selecionado
-    df = ler_titulos_do_plano("df", plano)
-    df_carteira = ler_titulos_do_plano("df_carteira", plano)
+    df = ler_titulos_do_plano("df", plano, versao)
+    df_carteira = ler_titulos_do_plano("df_carteira", plano, versao)
 with col2:
     if analise_por_grupo:
         grupos_passivo = set(passivo.loc[passivo["numero_plano"] == plano, "grupo"].dropna())
