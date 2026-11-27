@@ -560,7 +560,7 @@ fig.update_layout(
     yaxis_title="Valor Presente",
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     margin=dict(l=0, r=0, t=30, b=0),
-    height=380,
+    height=500,
     hovermode="x unified",
     yaxis=dict(tickformat=",.0f"),
 )
